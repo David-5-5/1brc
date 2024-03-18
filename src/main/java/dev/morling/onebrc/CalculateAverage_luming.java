@@ -24,6 +24,11 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.stream.Collector;
 
+/**
+ * Copy from baseline   22.697s   for 0.1B
+ * 1. stream(...).parallel(). 
+ *                       6.561s
+ */
 public class CalculateAverage_luming {
 
     private static final String FILE = "./measurements.txt";
@@ -84,6 +89,7 @@ public class CalculateAverage_luming {
                 });
 
         Map<String, ResultRow> measurements = new TreeMap<>(Files.lines(Paths.get(FILE))
+                .parallel()
                 .map(l -> new Measurement(l.split(";")))
                 .collect(groupingBy(m -> m.station(), collector)));
 

@@ -89,6 +89,7 @@ public class CalculateAverage_luming {
                 });
 
         Map<String, ResultRow> measurements = new TreeMap<>(Files.lines(Paths.get(FILE))
+                // Add parallel method
                 .parallel()
                 .map(l -> new Measurement(l.split(";")))
                 .collect(groupingBy(m -> m.station(), collector)));

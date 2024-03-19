@@ -466,6 +466,10 @@ The mean value of the remaining three runs is the result for that contender and 
 The exact same _measurements.txt_ file is used for evaluating all contenders.
 See the script _evaluate.sh_ for the exact implementation of the evaluation steps.
 
+`./evaluate.sh yourname`
+
+It would evaluate the result. The _evaluate.sh_ script would prompt you to install `hyperfine`, `jq`, `bc`, etc. 
+
 ## Prize
 
 If you enter this challenge, you may learn something new, get to inspire others, and take pride in seeing your name listed in the scoreboard above.

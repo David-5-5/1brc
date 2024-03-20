@@ -29,6 +29,12 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.StructuredTaskScope;
 import java.util.concurrent.StructuredTaskScope.Subtask;
 
+/**
+ * Certificated 7.894s      for 1B without image
+ * 
+ * Non-image :  1.444 s     for 0.1B
+ * Image:       1.066 s     for 0.1B
+ */
 public class CalculateAverage_tonivade {
 
     private static final String FILE = "./measurements.txt";

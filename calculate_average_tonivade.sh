@@ -15,5 +15,10 @@
 #  limitations under the License.
 #
 
-JAVA_OPTS="-Xmx1G -Xms1G -XX:+AlwaysPreTouch -XX:+UseParallelGC -XX:-UseCompressedOops --enable-preview"
-java $JAVA_OPTS --class-path target/average-1.0.0-SNAPSHOT.jar dev.morling.onebrc.CalculateAverage_tonivade
+if [ -f target/CalculateAverage_tonivade_image ]; then
+    echo "Picking up existing native image 'target/CalculateAverage_tonivade_image', delete the file to select JVM mode." 1>&2
+    target/CalculateAverage_tonivade_image
+else
+    JAVA_OPTS="-Xmx1G -Xms1G -XX:+AlwaysPreTouch -XX:+UseParallelGC -XX:-UseCompressedOops --enable-preview"
+    java $JAVA_OPTS --class-path target/average-1.0.0-SNAPSHOT.jar dev.morling.onebrc.CalculateAverage_tonivade
+fi

@@ -15,17 +15,11 @@
  */
 package dev.morling.onebrc;
 
-import static java.util.stream.Collectors.*;
+import static java.util.stream.Collectors.groupingBy;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.RandomAccessFile;
-import java.io.StringReader;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
@@ -33,10 +27,14 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collector;
 
 /**
- * Copy from baseline 22.697s for 0.1B
+ * Copy from baseline 22.697s for 0.1Bs
  * 1. stream(...).parallel().
  * 6.561s
  */
@@ -110,21 +108,38 @@ public class CalculateAverage_luming {
         System.out.println(measurements);
     }
 
+    static int precessors = Runtime.getRuntime().availableProcessors();
+    static ExecutorService executorService = Executors.newFixedThreadPool(precessors);
+
     // ----------------------------------------------------------------------------------------------------------------------
     public static void solution2() throws IOException {
+
         Map<String, MeasurementAggregator> collector = new TreeMap<>();
-        int block = 1024;
+
         try (RandomAccessFile file = new RandomAccessFile(new File(FILE), "r")) {
             FileChannel channel = file.getChannel();
-            MappedByteBuffer buffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size());
-            while (buffer.hasRemaining()) {
-                byte[] data = new byte[block];
-                buffer.get(data);
-                BufferedReader reader = new BufferedReader(new StringReader(new String(data, StandardCharsets.UTF_8)));
-                // reader;
+
+            final AtomicLong start = new AtomicLong(0);
+            int allocated = 0;
+            long chunkSize = channel.size() / precessors;
+
+            while (allocated < precessors) {
+                Future future = executorService.submit(() -> {
+                    try {
+                        read(channel.map(FileChannel.MapMode.READ_ONLY, start.longValue(), chunkSize));
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    start.addAndGet(chunkSize);
+                });
             }
 
         }
+    }
+
+    private static void read(MappedByteBuffer buffer) throws IOException {
+        byte[] data = new byte[buffer.remaining()];
+        System.out.println(new String(data, StandardCharsets.UTF_8));
     }
 
     public static void main(String[] args) throws IOException {

@@ -34,7 +34,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Collector;
 
-
 /**
  * Copy from baseline 22.697s for 0.1Bs
  * 1. stream(...).parallel().
@@ -125,9 +124,15 @@ public class CalculateAverage_luming {
             int chunk = 0;
             long chunkSize = channel.size() / precessors;
             int leave = (int) channel.size() % precessors;
-            System.out.println("channel.size() = " + channel.size());
-            System.out.println("precessors = " + precessors);
-            while (chunk++ < precessors) {
+            // System.out.println("channel.size() = " + channel.size());
+            // System.out.println("precessors = " + precessors);
+            int threads = precessors;
+            if (chunkSize < 1024) {
+                threads = 1;
+                chunkSize = channel.size();
+                leave = 0;
+            }
+            while (chunk++ < threads) {
                 final Future<PartialResult> future = executorService
                         .submit(new PartialCallable(channel, chunk - 1, chunkSize, leave));
 
@@ -137,13 +142,13 @@ public class CalculateAverage_luming {
             executorService.shutdown();
 
             String prefix = "";
-            for (int i=0; i<precessors; i++) {
-                if (i==0) {
+            for (int i = 0; i < threads; i++) {
+                // System.out.prinln("fist line")
+                if (i == 0) {
                     result = partials.get(i).partial;
                     prefix = partials.get(i).lastLine;
-                } else {
-                    prefix += partials.get(i).firstLine;
-
+                }
+                else {
                     for (String key : partials.get(i).partial.keySet()) {
                         if (result.containsKey(key)) {
                             MeasurementAggregator agg1 = result.get(key);
@@ -152,7 +157,8 @@ public class CalculateAverage_luming {
                             agg1.max = Math.max(agg1.max, agg2.max);
                             agg1.sum += agg2.sum;
                             agg1.count += agg2.count;
-                        } else {
+                        }
+                        else {
                             result.put(key, partials.get(i).partial.get(key));
                         }
                     }
@@ -163,11 +169,10 @@ public class CalculateAverage_luming {
                 }
             }
 
-
             Map<String, ResultRow> measurements = new TreeMap<>();
-            result = partials.get(1).partial;
+            // result = partials.get(1).partial;
             for (String key : result.keySet()) {
-                ResultRow row = new ResultRow(result.get(key).min, result.get(key).sum/ result.get(key).count, result.get(key).max);
+                ResultRow row = new ResultRow(result.get(key).min, (Math.round(result.get(key).sum * 10.0) / 10.0) / result.get(key).count, result.get(key).max);
                 measurements.put(key, row);
             }
             System.out.println(measurements);
@@ -211,7 +216,7 @@ public class CalculateAverage_luming {
             MeasurementAggregator agg = aggs.get(value[0]);
             agg.count++;
             agg.min = Math.min(agg.min, Double.valueOf(value[1]));
-            agg.max = Math.max(agg.min, Double.valueOf(value[1]));
+            agg.max = Math.max(agg.max, Double.valueOf(value[1]));
             agg.sum += Double.valueOf(value[1]);
         }
         else {
@@ -265,9 +270,9 @@ public class CalculateAverage_luming {
     }
 
     public static void main(String[] args) throws IOException, InterruptedException, ExecutionException {
-        Long begin = System.currentTimeMillis();
+        // Long begin = System.currentTimeMillis();
         solution2();
-        System.out.println("Execute : " + (System.currentTimeMillis() - begin));
-        
+        // System.out.println("Execute : " + (System.currentTimeMillis() - begin));
+
     }
 }

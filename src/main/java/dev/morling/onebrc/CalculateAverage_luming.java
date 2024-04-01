@@ -34,6 +34,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.function.BiFunction;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
 
@@ -232,6 +233,15 @@ public class CalculateAverage_luming {
         }
     }
 
+    static BiFunction<MeasurementAggregator, MeasurementAggregator, MeasurementAggregator> biFunction = (agg1, agg2) -> {
+        var res = new MeasurementAggregator();
+        res.min = Math.min(agg1.min, agg2.min);
+        res.max = Math.max(agg1.max, agg2.max);
+        res.sum = agg1.sum + agg2.sum;
+        res.count = agg1.count + agg2.count;
+        return res;
+    };
+
     public static class PartialResult {
         int chunk;
         Map<String, MeasurementAggregator> partial = new TreeMap<>();
@@ -372,17 +382,8 @@ public class CalculateAverage_luming {
                 }
                 else {
                     for (String key : partials.get(i).partial.keySet()) {
-                        if (result.containsKey(key)) {
-                            MeasurementAggregator agg1 = result.get(key);
-                            MeasurementAggregator agg2 = partials.get(i).partial.get(key);
-                            agg1.min = Math.min(agg1.min, agg2.min);
-                            agg1.max = Math.max(agg1.max, agg2.max);
-                            agg1.sum += agg2.sum;
-                            agg1.count += agg2.count;
-                        }
-                        else {
-                            result.put(key, partials.get(i).partial.get(key));
-                        }
+                        result.merge(key, partials.get(i).partial.get(key),
+                                biFunction);
                     }
 
                     handle(result, prefix + partials.get(i).firstLine);

@@ -111,8 +111,8 @@ public class CalculateAverage_luming {
     }
 
     static byte line_separator = '\n';
-    static int precessors = Runtime.getRuntime().availableProcessors();
-    static ExecutorService executorService = Executors.newFixedThreadPool(precessors);
+    static ExecutorService executorService = Executors.newFixedThreadPool(8);
+    static int threads = 72;
 
     // ----------------------------------------------------------------------------------------------------------------------
     public static void solution2() throws IOException, InterruptedException, ExecutionException {
@@ -122,11 +122,11 @@ public class CalculateAverage_luming {
             FileChannel channel = file.getChannel();
 
             int chunk = 0;
-            long chunkSize = channel.size() / precessors;
-            int leave = (int) channel.size() % precessors;
+            long chunkSize = channel.size() / threads;
+            int leave = (int) channel.size() % threads;
             // System.out.println("channel.size() = " + channel.size());
             // System.out.println("precessors = " + precessors);
-            int threads = precessors;
+
             if (chunkSize < 1024) {
                 threads = 1;
                 chunkSize = channel.size();
@@ -194,7 +194,7 @@ public class CalculateAverage_luming {
 
         @Override
         public PartialResult call() throws Exception {
-            long size = chunkSize + (chunk + 1 == precessors ? leave : 0);
+            long size = chunkSize + (chunk + 1 == threads ? leave : 0);
             ByteBuffer buffer = channel.map(FileChannel.MapMode.READ_ONLY, chunk * chunkSize, size);
 
             // System.out.println(new String(data, StandardCharsets.UTF_8));
@@ -261,7 +261,7 @@ public class CalculateAverage_luming {
             // Last
             byte[] line = new byte[data.length - begin];
             System.arraycopy(data, begin, line, 0, line.length);
-            if (chunk + 1 != precessors) {
+            if (chunk + 1 != threads) {
                 lastLine = new String(line, StandardCharsets.UTF_8);
             }
             else

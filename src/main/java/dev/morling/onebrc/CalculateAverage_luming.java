@@ -22,11 +22,13 @@ import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.io.StringReader;
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
@@ -40,12 +42,16 @@ import java.util.function.Function;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
 
+import sun.misc.Unsafe;
+
 /**
  * Copy from baseline 22.697s for 0.1Bs
  * 1. stream(...).parallel().
  * 6.561s
  */
 public class CalculateAverage_luming {
+
+    private static int NAME_LENGTH_LIMIT_BYTES = 128;
 
     private static final String FILE = "./measurements.txt";
 
@@ -227,7 +233,7 @@ public class CalculateAverage_luming {
 
     public static class PartialResult {
         int chunk;
-        Map<String, MeasurementAggregator> partial = new TreeMap<>();
+        Map<String, MeasurementAggregator> partial = new HashMap<>(1024 * 16);
         ByteBuffer buffer;
         String firstLine = "", lastLine = "";
 
@@ -402,10 +408,93 @@ public class CalculateAverage_luming {
         }
     }
 
+    // -------------------------------------------------------------------------------------------------
+    // ---------------------------- AS FOLLOWING IS SOLUTION 4 ---------------------------
+    // ---------------------------- Modified from solution 2 to ags313
+    // -------------------------------------------------------------------------------------------------
+    private static class Key implements Comparable<Key> {
+        private final byte[] value = new byte[NAME_LENGTH_LIMIT_BYTES];
+        private int hashCode;
+        private int length = 0;
+
+        public static Key valueOf(String v) {
+            Key key = new Key();
+            byte[] bs = v.getBytes();
+            for (int i = 0; i < bs.length; i++) {
+                key.accept(bs[i]);
+            }
+            return key;
+        }
+
+        // https://stackoverflow.com/questions/20952739/how-would-you-convert-a-string-to-a-64-bit-integer
+        public void accept(byte b) {
+            value[length] = b;
+            length += 1;
+            hashCode = hashCode * 10191 + b;
+        }
+
+        @Override
+        public boolean equals(Object that) {
+            if (this == that)
+                return true;
+            if (that == null)
+                return false;
+            Key key = (Key) that; // not checking class, nothing else uses this
+            if (hashCode != key.hashCode)
+                return false;
+            if (length != key.length)
+                return false;
+            for (int i = 0; i < length; i++) {
+                if (UNSAFE.getByte(value, i) != UNSAFE.getByte(key.value, i)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        @Override
+        public int hashCode() {
+            return hashCode;
+        }
+
+        @Override
+        public String toString() {
+            return new String(value, 0, length);
+        }
+
+        void reset() {
+            length = 0;
+            hashCode = 0;
+        }
+
+        @Override
+        public int compareTo(Key other) {
+            return toString().compareTo(other.toString());
+        }
+    }
+
+    public static void solution4() throws IOException, InterruptedException, ExecutionException {
+
+    }
+
     public static void main(String[] args) throws IOException, InterruptedException, ExecutionException {
         // Long begin = System.currentTimeMillis();
-        solution2();
+        solution1();
         // System.out.println("Execute : " + (System.currentTimeMillis() - begin));
 
+    }
+
+    private static final Unsafe UNSAFE = unsafe();
+
+    private static Unsafe unsafe() {
+        try {
+            Field theUnsafe = Unsafe.class.getDeclaredField("theUnsafe");
+            theUnsafe.setAccessible(true);
+            return (Unsafe) theUnsafe.get(Unsafe.class);
+        }
+        catch (NoSuchFieldException | IllegalAccessException e) {
+            throw new RuntimeException(e);
+        }
     }
 }

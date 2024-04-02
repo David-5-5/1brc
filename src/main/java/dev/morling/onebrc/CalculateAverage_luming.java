@@ -34,7 +34,9 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.function.BiFunction;
+import java.util.function.BiConsumer;
+import java.util.function.BinaryOperator;
+import java.util.function.Function;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
 
@@ -47,6 +49,9 @@ public class CalculateAverage_luming {
 
     private static final String FILE = "./measurements.txt";
 
+    // ------------------------------------------------------------------------
+    // The Bean of input and output
+    // ------------------------------------------------------------------------
     private static record Measurement(String station, double value) {
         private Measurement(String[] parts) {
             this(parts[0], Double.parseDouble(parts[1]));
@@ -69,8 +74,43 @@ public class CalculateAverage_luming {
         private double max = Double.NEGATIVE_INFINITY;
         private double sum;
         private long count;
+
+        MeasurementAggregator() {
+        }
+
+        MeasurementAggregator(double val) {
+            this.min = this.max = this.sum = val;
+            this.count += 1;
+        }
+
     }
 
+    // ------------------------------------------------------------------------
+    // The Functions used by Collector
+    // ------------------------------------------------------------------------
+    private static BinaryOperator<MeasurementAggregator> combiner = (agg1, agg2) -> {
+        var res = new MeasurementAggregator();
+        res.min = Math.min(agg1.min, agg2.min);
+        res.max = Math.max(agg1.max, agg2.max);
+        res.sum = agg1.sum + agg2.sum;
+        res.count = agg1.count + agg2.count;
+        return res;
+    };
+
+    private static BiConsumer<MeasurementAggregator, Measurement> accumulator = (a, m) -> {
+        a.min = Math.min(a.min, m.value);
+        a.max = Math.max(a.max, m.value);
+        a.sum += m.value;
+        a.count++;
+    };
+
+    private static Function<MeasurementAggregator, ResultRow> finisher = agg -> {
+        return new ResultRow(agg.min, (Math.round(agg.sum * 10.0) / 10.0) / agg.count, agg.max);
+    };
+
+    // -----------------------------------------------------------------------------
+    // Base line
+    // -----------------------------------------------------------------------------
     public static void solution1() throws IOException {
         // Map<String, Double> measurements1 = Files.lines(Paths.get(FILE))
         // .map(l -> l.split(";"))
@@ -84,25 +124,7 @@ public class CalculateAverage_luming {
         // System.out.println(measurements1);
 
         Collector<Measurement, MeasurementAggregator, ResultRow> collector = Collector.of(
-                MeasurementAggregator::new,
-                (a, m) -> {
-                    a.min = Math.min(a.min, m.value);
-                    a.max = Math.max(a.max, m.value);
-                    a.sum += m.value;
-                    a.count++;
-                },
-                (agg1, agg2) -> {
-                    var res = new MeasurementAggregator();
-                    res.min = Math.min(agg1.min, agg2.min);
-                    res.max = Math.max(agg1.max, agg2.max);
-                    res.sum = agg1.sum + agg2.sum;
-                    res.count = agg1.count + agg2.count;
-
-                    return res;
-                },
-                agg -> {
-                    return new ResultRow(agg.min, (Math.round(agg.sum * 10.0) / 10.0) / agg.count, agg.max);
-                });
+                MeasurementAggregator::new, accumulator, combiner, finisher);
 
         Map<String, ResultRow> measurements = new TreeMap<>(Files.lines(Paths.get(FILE))
                 // Add parallel method
@@ -156,20 +178,13 @@ public class CalculateAverage_luming {
                 }
                 else {
                     for (String key : partials.get(i).partial.keySet()) {
-                        if (result.containsKey(key)) {
-                            MeasurementAggregator agg1 = result.get(key);
-                            MeasurementAggregator agg2 = partials.get(i).partial.get(key);
-                            agg1.min = Math.min(agg1.min, agg2.min);
-                            agg1.max = Math.max(agg1.max, agg2.max);
-                            agg1.sum += agg2.sum;
-                            agg1.count += agg2.count;
-                        }
-                        else {
-                            result.put(key, partials.get(i).partial.get(key));
-                        }
+                        result.merge(key, partials.get(i).partial.get(key),
+                                combiner);
                     }
 
-                    handle(result, prefix + partials.get(i).firstLine);
+                    String[] line = (prefix + partials.get(i).firstLine).split(";");
+                    if (line.length == 2)
+                        result.merge(line[0], new MeasurementAggregator(Double.parseDouble(line[1])), combiner);
 
                     prefix = partials.get(i).lastLine;
                 }
@@ -210,38 +225,6 @@ public class CalculateAverage_luming {
         }
     }
 
-    private static void handle(Map<String, MeasurementAggregator> aggs, String line) {
-
-        String[] value = line.split(";");
-        if (value.length < 2) {
-            // empty line
-            // System.err.println("error, can't find two elements of '" + new String(line, StandardCharsets.UTF_8) + "'");
-            return;
-        }
-        if (aggs.containsKey(value[0])) {
-            MeasurementAggregator agg = aggs.get(value[0]);
-            agg.count++;
-            agg.min = Math.min(agg.min, Double.valueOf(value[1]));
-            agg.max = Math.max(agg.max, Double.valueOf(value[1]));
-            agg.sum += Double.valueOf(value[1]);
-        }
-        else {
-            MeasurementAggregator agg = new MeasurementAggregator();
-            agg.count = 1;
-            agg.max = agg.min = agg.sum = Double.valueOf(value[1]);
-            aggs.put(value[0], agg);
-        }
-    }
-
-    static BiFunction<MeasurementAggregator, MeasurementAggregator, MeasurementAggregator> biFunction = (agg1, agg2) -> {
-        var res = new MeasurementAggregator();
-        res.min = Math.min(agg1.min, agg2.min);
-        res.max = Math.max(agg1.max, agg2.max);
-        res.sum = agg1.sum + agg2.sum;
-        res.count = agg1.count + agg2.count;
-        return res;
-    };
-
     public static class PartialResult {
         int chunk;
         Map<String, MeasurementAggregator> partial = new TreeMap<>();
@@ -267,8 +250,11 @@ public class CalculateAverage_luming {
                     if (begin == 0 && chunk != 0) {
                         firstLine = new String(line, StandardCharsets.UTF_8);
                     }
-                    else
-                        handle(partial, new String(line, StandardCharsets.UTF_8));
+                    else {
+                        String[] part = new String(line, StandardCharsets.UTF_8).split(";");
+                        if (part.length == 2)
+                            partial.merge(part[0], new MeasurementAggregator(Double.parseDouble(part[1])), combiner);
+                    }
                     // set begin for next line
                     begin = i + 1;
                 }
@@ -280,8 +266,11 @@ public class CalculateAverage_luming {
             if (chunk + 1 != threads) {
                 lastLine = new String(line, StandardCharsets.UTF_8);
             }
-            else
-                handle(partial, new String(line, StandardCharsets.UTF_8));
+            else {
+                String[] part = new String(line, StandardCharsets.UTF_8).split(";");
+                if (part.length == 2)
+                    partial.merge(part[0], new MeasurementAggregator(Double.parseDouble(part[1])), combiner);
+            }
         }
 
         // used for sulution 3
@@ -317,22 +306,7 @@ public class CalculateAverage_luming {
             System.arraycopy(data, begin, content, 0, content.length);
 
             Collector<Measurement, MeasurementAggregator, MeasurementAggregator> collector = Collector.of(
-                    MeasurementAggregator::new,
-                    (a, m) -> {
-                        a.min = Math.min(a.min, m.value);
-                        a.max = Math.max(a.max, m.value);
-                        a.sum += m.value;
-                        a.count++;
-                    },
-                    (agg1, agg2) -> {
-                        var res = new MeasurementAggregator();
-                        res.min = Math.min(agg1.min, agg2.min);
-                        res.max = Math.max(agg1.max, agg2.max);
-                        res.sum = agg1.sum + agg2.sum;
-                        res.count = agg1.count + agg2.count;
-
-                        return res;
-                    });
+                    MeasurementAggregator::new, accumulator, combiner);
 
             partial = new BufferedReader(new StringReader(new String(content, StandardCharsets.UTF_8))).lines()
                     .parallel()
@@ -383,17 +357,18 @@ public class CalculateAverage_luming {
                 else {
                     for (String key : partials.get(i).partial.keySet()) {
                         result.merge(key, partials.get(i).partial.get(key),
-                                biFunction);
+                                combiner);
                     }
 
-                    handle(result, prefix + partials.get(i).firstLine);
+                    String[] line = (prefix + partials.get(i).firstLine).split(";");
+                    if (line.length == 2)
+                        result.merge(line[0], new MeasurementAggregator(Double.parseDouble(line[1])), combiner);
 
                     prefix = partials.get(i).lastLine;
                 }
             }
 
             Map<String, ResultRow> measurements = new TreeMap<>();
-            // result = partials.get(1).partial;
             for (String key : result.keySet()) {
                 ResultRow row = new ResultRow(result.get(key).min, (Math.round(result.get(key).sum * 10.0) / 10.0) / result.get(key).count, result.get(key).max);
                 measurements.put(key, row);
@@ -429,7 +404,7 @@ public class CalculateAverage_luming {
 
     public static void main(String[] args) throws IOException, InterruptedException, ExecutionException {
         // Long begin = System.currentTimeMillis();
-        solution3();
+        solution2();
         // System.out.println("Execute : " + (System.currentTimeMillis() - begin));
 
     }

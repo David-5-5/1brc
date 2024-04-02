@@ -308,9 +308,14 @@ public class CalculateAverage_luming {
             Collector<Measurement, MeasurementAggregator, MeasurementAggregator> collector = Collector.of(
                     MeasurementAggregator::new, accumulator, combiner);
 
-            partial = new BufferedReader(new StringReader(new String(content, StandardCharsets.UTF_8))).lines()
-                    .parallel()
+            partial = new BufferedReader(new StringReader(new String(content, StandardCharsets.UTF_8)))
+                    .lines().parallel()
                     .map(l -> new Measurement(l.split(";")))
+                    // The are no obliviously improvements between split and indexOf
+                    // .map(l -> {
+                    // int pos = l.indexOf(';');
+                    // return new Measurement(new String[]{ l.substring(0, pos), l.substring(pos + 1) });
+                    // })
                     // The are no obliviously improvements between groupingBy and groupingByConcurrent
                     .collect(Collectors.groupingBy(m -> m.station(), collector));
 
@@ -404,7 +409,7 @@ public class CalculateAverage_luming {
 
     public static void main(String[] args) throws IOException, InterruptedException, ExecutionException {
         // Long begin = System.currentTimeMillis();
-        solution2();
+        solution3();
         // System.out.println("Execute : " + (System.currentTimeMillis() - begin));
 
     }

@@ -239,8 +239,7 @@ public class CalculateAverage_luming {
                 if (i == 0) {
                     result = partials.get(i).partial;
                     prefix = partials.get(i).lastLine;
-                }
-                else {
+                } else {
                     for (String key : partials.get(i).partial.keySet()) {
                         result.merge(key, partials.get(i).partial.get(key),
                                 combiner);
@@ -277,8 +276,7 @@ public class CalculateAverage_luming {
                 // System.out.println(new String(line, StandardCharsets.UTF_8));
                 if (begin == 0 && result.chunk != 0) {
                     result.firstLine = new String(line, StandardCharsets.UTF_8);
-                }
-                else {
+                } else {
                     String[] part = new String(line, StandardCharsets.UTF_8).split(";");
                     if (part.length == 2)
                         result.partial.merge(part[0], new MeasurementAggregator(Double.parseDouble(part[1])), combiner);
@@ -293,8 +291,7 @@ public class CalculateAverage_luming {
         System.arraycopy(data, begin, line, 0, line.length);
         if (result.chunk + 1 != threads) {
             result.lastLine = new String(line, StandardCharsets.UTF_8);
-        }
-        else {
+        } else {
             String[] part = new String(line, StandardCharsets.UTF_8).split(";");
             if (part.length == 2)
                 result.partial.merge(part[0], new MeasurementAggregator(Double.parseDouble(part[1])), combiner);
@@ -345,8 +342,7 @@ public class CalculateAverage_luming {
                 if (i == 0) {
                     result = partials.get(i).partial;
                     prefix = partials.get(i).lastLine;
-                }
-                else {
+                } else {
                     for (String key : partials.get(i).partial.keySet()) {
                         result.merge(key, partials.get(i).partial.get(key),
                                 combiner);
@@ -440,6 +436,7 @@ public class CalculateAverage_luming {
 
         public static Key valueOf(String v) {
             Key key = new Key();
+            key.reset();
             byte[] bs = v.getBytes();
             for (int i = 0; i < bs.length; i++) {
                 key.accept(bs[i]);
@@ -496,13 +493,11 @@ public class CalculateAverage_luming {
     }
 
     public static class Solution4Result {
-        int chunk;
-        Map<String, MeasurementAggregator> partial = new HashMap<>(1024 * 16);
-        ByteBuffer buffer;
-        String firstLine = "", lastLine = "";
 
-        Solution4Result(int chunk, ByteBuffer buffer) {
-            this.chunk = chunk;
+        Map<String, MeasurementAggregator> aggs = new HashMap<>(1024 * 16);
+        ByteBuffer buffer;
+
+        Solution4Result(ByteBuffer buffer) {
             this.buffer = buffer;
         }
 
@@ -510,14 +505,12 @@ public class CalculateAverage_luming {
 
     public static class Solution4Callable implements Callable<Solution4Result> {
         FileChannel channel;
-        int chunk;
         long begin;
         long size;
         Consumer<Solution4Result> action;
 
-        Solution4Callable(FileChannel channel, int chunk, long begin, long size, Consumer<Solution4Result> action) {
+        Solution4Callable(FileChannel channel, long begin, long size, Consumer<Solution4Result> action) {
             this.channel = channel;
-            this.chunk = chunk;
             this.begin = begin;
             this.size = size;
             this.action = action;
@@ -529,7 +522,7 @@ public class CalculateAverage_luming {
             ByteBuffer buffer = channel.map(FileChannel.MapMode.READ_ONLY, begin, size);
 
             // System.out.println(new String(data, StandardCharsets.UTF_8));
-            Solution4Result result = new Solution4Result(chunk, buffer);
+            Solution4Result result = new Solution4Result(buffer);
             action.accept(result);
             return result;
         }
@@ -537,7 +530,6 @@ public class CalculateAverage_luming {
 
     public static void solution4() throws IOException, InterruptedException, ExecutionException {
         Map<String, MeasurementAggregator> result = new TreeMap<>();
-        Map<Integer, Solution4Result> partials = new TreeMap<>();
         @SuppressWarnings("unchecked")
         final Future<Solution4Result>[] futures = new Future[128];
 
@@ -563,7 +555,7 @@ public class CalculateAverage_luming {
                 }
                 // System.out.println("execute thread from " + begin + " and size = " + size);
                 futures[chunk] = executorService
-                        .submit(new Solution4Callable(channel, chunk, begin, size, r -> {
+                        .submit(new Solution4Callable(channel, begin, size, r -> {
                             handle4(r);
                         }));
                 // Next block
@@ -573,22 +565,14 @@ public class CalculateAverage_luming {
 
             }
 
-            for (int i = 0; i < chunk; i++)
-                partials.put(i, futures[i].get());
-
-            executorService.shutdown();
-
             for (int i = 0; i < chunk; i++) {
-                if (i == 0) {
-                    result = partials.get(i).partial;
-                }
-                else {
-                    for (String key : partials.get(i).partial.keySet()) {
-                        result.merge(key, partials.get(i).partial.get(key),
-                                combiner);
-                    }
+                Solution4Result part = futures[i].get();
+                for (String key : part.aggs.keySet()) {
+                    result.merge(key, part.aggs.get(key), combiner);
                 }
             }
+
+            executorService.shutdown();
 
             Map<String, ResultRow> measurements = new TreeMap<>();
             for (String key : result.keySet()) {
@@ -609,16 +593,12 @@ public class CalculateAverage_luming {
             if (data[i] == LINE_SEPARATOR) {
                 byte[] line = new byte[i - begin];
                 System.arraycopy(data, begin, line, 0, line.length);
-                // System.out.println(new String(line, StandardCharsets.UTF_8));
-                // if (begin == 0 && result.chunk != 0) {
-                // result.firstLine = new String(line, StandardCharsets.UTF_8);
-                // }
-                // else {
+
                 String[] part = new String(line, StandardCharsets.UTF_8).split(";");
                 if (part.length == 2)
-                    result.partial.merge(part[0],
-                            new MeasurementAggregator(Double.parseDouble(part[1])), combiner);
-                // }
+                    result.aggs.merge(part[0]// Key.valueOf(part[0])
+                            , new MeasurementAggregator(Double.parseDouble(part[1])), combiner);
+
                 // set begin for next line
                 begin = i + 1;
             }
@@ -627,14 +607,13 @@ public class CalculateAverage_luming {
         // Last
         byte[] line = new byte[data.length - begin];
         System.arraycopy(data, begin, line, 0, line.length);
-        // if (result.chunk + 1 != threads) {
-        // result.lastLine = new String(line, StandardCharsets.UTF_8);
-        // } else {
+
         String[] part = new String(line, StandardCharsets.UTF_8).split(";");
         if (part.length == 2)
-            result.partial.merge(part[0], new MeasurementAggregator(Double.parseDouble(part[1])),
+            result.aggs.merge(part[0]// Key.valueOf(part[0])
+            ,new MeasurementAggregator(Double.parseDouble(part[1])),
                     combiner);
-        // }
+
     }
 
     public static void main(String[] args) throws IOException, InterruptedException, ExecutionException {
@@ -651,8 +630,7 @@ public class CalculateAverage_luming {
             Field theUnsafe = Unsafe.class.getDeclaredField("theUnsafe");
             theUnsafe.setAccessible(true);
             return (Unsafe) theUnsafe.get(Unsafe.class);
-        }
-        catch (NoSuchFieldException | IllegalAccessException e) {
+        } catch (NoSuchFieldException | IllegalAccessException e) {
             throw new RuntimeException(e);
         }
     }

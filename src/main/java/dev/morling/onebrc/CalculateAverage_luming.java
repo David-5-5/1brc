@@ -205,6 +205,7 @@ public class CalculateAverage_luming {
     public static void solution2() throws IOException, InterruptedException, ExecutionException {
         Map<String, MeasurementAggregator> result = new TreeMap<>();
         Map<Integer, PartialResult> partials = new TreeMap<>();
+        @SuppressWarnings("unchecked")
         final Future<PartialResult>[] futures = new Future[threads];
         try (RandomAccessFile file = new RandomAccessFile(new File(FILE), "r")) {
             FileChannel channel = file.getChannel();
@@ -309,6 +310,7 @@ public class CalculateAverage_luming {
     public static void solution3() throws IOException, InterruptedException, ExecutionException {
         Map<String, MeasurementAggregator> result = new TreeMap<>();
         Map<Integer, PartialResult> partials = new TreeMap<>();
+        @SuppressWarnings("unchecked")
         final Future<PartialResult>[] futures = new Future[threads];
         try (RandomAccessFile file = new RandomAccessFile(new File(FILE), "r")) {
             FileChannel channel = file.getChannel();
@@ -536,6 +538,7 @@ public class CalculateAverage_luming {
     public static void solution4() throws IOException, InterruptedException, ExecutionException {
         Map<String, MeasurementAggregator> result = new TreeMap<>();
         Map<Integer, Solution4Result> partials = new TreeMap<>();
+        @SuppressWarnings("unchecked")
         final Future<Solution4Result>[] futures = new Future[128];
 
         try (RandomAccessFile file = new RandomAccessFile(new File(FILE), "r")) {
@@ -548,7 +551,7 @@ public class CalculateAverage_luming {
                 long size = Math.min(BLOCK_SIZE, channel.size() - begin);
 
                 if (size == BLOCK_SIZE) {
-                    ByteBuffer buffer = channel.map(FileChannel.MapMode.READ_ONLY, size,
+                    ByteBuffer buffer = channel.map(FileChannel.MapMode.READ_ONLY, begin + size,
                             Math.min(BUFFER_SIZE, channel.size() - begin - size));
                     while (buffer.hasRemaining()) {
                         byte cur = buffer.get();
@@ -607,15 +610,15 @@ public class CalculateAverage_luming {
                 byte[] line = new byte[i - begin];
                 System.arraycopy(data, begin, line, 0, line.length);
                 // System.out.println(new String(line, StandardCharsets.UTF_8));
-                if (begin == 0 && result.chunk != 0) {
-                    result.firstLine = new String(line, StandardCharsets.UTF_8);
-                }
-                else {
-                    String[] part = new String(line, StandardCharsets.UTF_8).split(";");
-                    if (part.length == 2)
-                        result.partial.merge(part[0],
-                                new MeasurementAggregator(Double.parseDouble(part[1])), combiner);
-                }
+                // if (begin == 0 && result.chunk != 0) {
+                // result.firstLine = new String(line, StandardCharsets.UTF_8);
+                // }
+                // else {
+                String[] part = new String(line, StandardCharsets.UTF_8).split(";");
+                if (part.length == 2)
+                    result.partial.merge(part[0],
+                            new MeasurementAggregator(Double.parseDouble(part[1])), combiner);
+                // }
                 // set begin for next line
                 begin = i + 1;
             }

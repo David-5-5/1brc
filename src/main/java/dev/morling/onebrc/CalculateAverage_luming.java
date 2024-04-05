@@ -442,21 +442,22 @@ public class CalculateAverage_luming {
     //
     // 5) Use Stats replace of MeasurementAggregator
     // Result -- 2.388
+    // based on step 5, direct Use The UNSAFE class The elapse is 81.334 s
+    //
+    // 6) Step 6
+    // new Key() when key is first occur
+    // Result -- 1.605 Use The UNSAFE class
+    // Result -- 1.584 Without The UNSAFE class
+    //
+    // Sum, ON MY OPINION
+    // 1, read byte is faster than readline with String
+    // 2, Create minimal objects as possible.
+    // 3, Add with long/int type, At the end, transfer to Double
     // -------------------------------------------------------------------------------------------------
     private static class Key implements Comparable<Key> {
         private final byte[] value = new byte[NAME_LENGTH_LIMIT_BYTES];
         private int hashCode;
         private int length = 0;
-
-        // public static Key valueOf(String v) {
-        // Key key = new Key();
-        // key.reset();
-        // byte[] bs = v.getBytes();
-        // for (int i = 0; i < bs.length; i++) {
-        // key.accept(bs[i]);
-        // }
-        // return key;
-        // }
 
         // https://stackoverflow.com/questions/20952739/how-would-you-convert-a-string-to-a-64-bit-integer
         public void accept(byte b) {
@@ -476,9 +477,18 @@ public class CalculateAverage_luming {
                 return false;
             if (length != key.length)
                 return false;
+
+            // As following solution is a good choice.
+            // for (int i = 0; i < length; i++) {
+            // // Don't use unsafe
+            // if (value[i] != key.value[i]) {
+            // return false;
+            // }
+            // }
+
+            // Use UNSAFE is alternative solution
             for (int i = 0; i < length; i++) {
-                // Don't use unsafe
-                if (value[i] != key.value[i]) {
+                if (UNSAFE.getByte(value, i) != UNSAFE.getByte(key.value, i)) {
                     return false;
                 }
             }
@@ -625,41 +635,12 @@ public class CalculateAverage_luming {
     }
 
     public static void handle4(Solution4Result result) {
-
-        // byte[] data = new byte[result.buffer.remaining()];
-        // result.buffer.get(data);
-        // int begin = 0;
-        // for (int i = 0; i < data.length; i++) {
-        // if (data[i] == LINE_SEPARATOR) {
-        // byte[] line = new byte[i - begin];
-        // System.arraycopy(data, begin, line, 0, line.length);
-
-        // String[] part = new String(line, StandardCharsets.UTF_8).split(";");
-        // if (part.length == 2)
-        // result.aggs.merge(// part[0]
-        // Key.valueOf(part[0]), new MeasurementAggregator(Double.parseDouble(part[1])),
-        // combiner);
-
-        // // set begin for next line
-        // begin = i + 1;
-        // }
-
-        // }
-        // // Last
-        // byte[] line = new byte[data.length - begin];
-        // System.arraycopy(data, begin, line, 0, line.length);
-
-        // String[] part = new String(line, StandardCharsets.UTF_8).split(";");
-        // if (part.length == 2)
-        // result.aggs.merge(// part[0]
-        // Key.valueOf(part[0]), new MeasurementAggregator(Double.parseDouble(part[1])),
-        // combiner);
-
+        Key key = new Key();
         while (result.buffer.remaining() > 1) {
+            key.reset();
             boolean negative = false;
-            Key key = new Key();
+
             var value = 0;
-            int divide = 0;
 
             // Acquire the key
             while (result.buffer.remaining() > 0) {
@@ -682,7 +663,6 @@ public class CalculateAverage_luming {
                         break loop2;
                     default:
                         value = (value * 10) + (b - '0');
-                        divide *= 10;
                 }
             }
             if (negative)
@@ -690,6 +670,9 @@ public class CalculateAverage_luming {
 
             // Merge the current
             Stats stats = result.aggs.computeIfAbsent(key, c -> new Stats());
+            if (stats.count == 0)
+                key = new Key();
+
             stats.count++;
             stats.total += value;
             if (value < stats.min) {

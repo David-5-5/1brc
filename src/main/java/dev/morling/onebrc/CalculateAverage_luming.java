@@ -21,6 +21,8 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.io.StringReader;
 import java.lang.reflect.Field;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
@@ -41,9 +43,6 @@ import java.util.function.Function;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
 
-import com.oracle.graal.enterprise.hotspot.phases.strings.t;
-
-import dev.morling.onebrc.CalculateAverage_jeevjyot.tempMeasurement;
 import sun.misc.Unsafe;
 
 /**
@@ -439,6 +438,10 @@ public class CalculateAverage_luming {
     // Result -- 8.429
     //
     // 4) Change read line to read byte
+    // Result -- 5.429
+    //
+    // 5) Use Stats replace of MeasurementAggregator
+    // Result -- 2.388
     // -------------------------------------------------------------------------------------------------
     private static class Key implements Comparable<Key> {
         private final byte[] value = new byte[NAME_LENGTH_LIMIT_BYTES];
@@ -446,13 +449,13 @@ public class CalculateAverage_luming {
         private int length = 0;
 
         // public static Key valueOf(String v) {
-        //     Key key = new Key();
-        //     key.reset();
-        //     byte[] bs = v.getBytes();
-        //     for (int i = 0; i < bs.length; i++) {
-        //         key.accept(bs[i]);
-        //     }
-        //     return key;
+        // Key key = new Key();
+        // key.reset();
+        // byte[] bs = v.getBytes();
+        // for (int i = 0; i < bs.length; i++) {
+        // key.accept(bs[i]);
+        // }
+        // return key;
         // }
 
         // https://stackoverflow.com/questions/20952739/how-would-you-convert-a-string-to-a-64-bit-integer
@@ -504,9 +507,33 @@ public class CalculateAverage_luming {
         }
     }
 
+    static class Stats {
+        private int min = Integer.MAX_VALUE;
+        private int max = Integer.MIN_VALUE;
+        private long total;
+        private int count;
+
+        Stats() {
+        }
+
+        @Override
+        public String toString() {
+            return BigDecimal.valueOf(min / (10.0)).setScale(1, RoundingMode.HALF_UP) + "/"
+                    + BigDecimal.valueOf(total / (10.0 * count)).setScale(1, RoundingMode.HALF_UP) + '/'
+                    + BigDecimal.valueOf(max / (10.0)).setScale(1, RoundingMode.HALF_UP);
+        }
+
+        void merge(Stats that) {
+            max = Math.max(this.max, that.max);
+            min = Math.min(this.min, that.min);
+            total += that.total;
+            count += that.count;
+        }
+    }
+
     public static class Solution4Result {
 
-        Map<Key, MeasurementAggregator> aggs = new HashMap<>(1024 * 16);
+        Map<Key, Stats> aggs = new HashMap<>(1024 * 16);
         ByteBuffer buffer;
 
         Solution4Result(ByteBuffer buffer) {
@@ -541,7 +568,7 @@ public class CalculateAverage_luming {
     }
 
     public static void solution4() throws IOException, InterruptedException, ExecutionException {
-        Map<Key, MeasurementAggregator> result = new TreeMap<>();
+        Map<Key, Stats> result = new TreeMap<>();
         @SuppressWarnings("unchecked")
         final Future<Solution4Result>[] futures = new Future[128];
 
@@ -579,46 +606,43 @@ public class CalculateAverage_luming {
 
             for (int i = 0; i < chunk; i++) {
                 Solution4Result part = futures[i].get();
-                for (Key key : part.aggs.keySet()) {
-                    result.merge(key, part.aggs.get(key), combiner);
-                    // if (i == 10) {
-                    // System.out.printf("The key string is %s, [lenght=%d] [hashcode=%d]\n",
-                    // key.toString(), key.length, key.hashCode);
-                    // }
-                }
+
+                part.aggs.forEach((key, value) -> result.computeIfAbsent(key, __ -> new Stats()).merge(value));
             }
 
             executorService.shutdown();
 
-            Map<String, ResultRow> measurements = new TreeMap<>();
-            for (Key key : result.keySet()) {
-                ResultRow row = new ResultRow(result.get(key).min,
-                        (Math.round(result.get(key).sum * 10.0) / 10.0) / result.get(key).count, result.get(key).max);
-                measurements.put(key.toString(), row);
-            }
-            System.out.println(measurements);
+            // Map<String, ResultRow> measurements = new TreeMap<>();
+            // for (Key key : result.keySet()) {
+            // ResultRow row = new ResultRow(result.get(key).min,
+            // (Math.round(result.get(key).sum * 10.0) / 10.0) / result.get(key).count,
+            // result.get(key).max);
+            // measurements.put(key.toString(), row);
+            // }
+            System.out.println(new TreeMap(result));
         }
 
     }
 
     public static void handle4(Solution4Result result) {
-        
+
         // byte[] data = new byte[result.buffer.remaining()];
         // result.buffer.get(data);
         // int begin = 0;
         // for (int i = 0; i < data.length; i++) {
-        //     if (data[i] == LINE_SEPARATOR) {
-        //         byte[] line = new byte[i - begin];
-        //         System.arraycopy(data, begin, line, 0, line.length);
+        // if (data[i] == LINE_SEPARATOR) {
+        // byte[] line = new byte[i - begin];
+        // System.arraycopy(data, begin, line, 0, line.length);
 
-        //         String[] part = new String(line, StandardCharsets.UTF_8).split(";");
-        //         if (part.length == 2)
-        //             result.aggs.merge(// part[0]
-        //                     Key.valueOf(part[0]), new MeasurementAggregator(Double.parseDouble(part[1])), combiner);
+        // String[] part = new String(line, StandardCharsets.UTF_8).split(";");
+        // if (part.length == 2)
+        // result.aggs.merge(// part[0]
+        // Key.valueOf(part[0]), new MeasurementAggregator(Double.parseDouble(part[1])),
+        // combiner);
 
-        //         // set begin for next line
-        //         begin = i + 1;
-        //     }
+        // // set begin for next line
+        // begin = i + 1;
+        // }
 
         // }
         // // Last
@@ -627,37 +651,53 @@ public class CalculateAverage_luming {
 
         // String[] part = new String(line, StandardCharsets.UTF_8).split(";");
         // if (part.length == 2)
-        //     result.aggs.merge(// part[0]
-        //             Key.valueOf(part[0]), new MeasurementAggregator(Double.parseDouble(part[1])),
-        //             combiner);
-        
+        // result.aggs.merge(// part[0]
+        // Key.valueOf(part[0]), new MeasurementAggregator(Double.parseDouble(part[1])),
+        // combiner);
+
         while (result.buffer.remaining() > 1) {
             boolean negative = false;
             Key key = new Key();
             var value = 0;
+            int divide = 0;
 
             // Acquire the key
-            while (result.buffer.remaining() > 1) {
+            while (result.buffer.remaining() > 0) {
                 byte b = result.buffer.get();
-                if (b == ';') break;
+                if (b == ';')
+                    break;
                 key.accept(b);
             }
             // Acquire the value
-            while (result.buffer.remaining() > 1) {
+            loop2: while (result.buffer.remaining() > 0) {
                 byte b = result.buffer.get();
-                switch(b) { 
+                switch (b) {
                     case '-':
                         negative = true;
-                    case '.':
-                    case '\n':
                         break;
+                    case '.':
+                        value = (value * 10) + (result.buffer.get() - '0'); // single decimal
+                        break;
+                    case '\n':
+                        break loop2;
                     default:
-                        value = value * 10 + (b - '0');
+                        value = (value * 10) + (b - '0');
+                        divide *= 10;
                 }
             }
-            if (negative) value = - value;
-            // Merge the current
+            if (negative)
+                value = -value;
 
+            // Merge the current
+            Stats stats = result.aggs.computeIfAbsent(key, c -> new Stats());
+            stats.count++;
+            stats.total += value;
+            if (value < stats.min) {
+                stats.min = value;
+            }
+            if (value > stats.max) {
+                stats.max = value;
+            }
         }
     }
 

@@ -41,6 +41,9 @@ import java.util.function.Function;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
 
+import com.oracle.graal.enterprise.hotspot.phases.strings.t;
+
+import dev.morling.onebrc.CalculateAverage_jeevjyot.tempMeasurement;
 import sun.misc.Unsafe;
 
 /**
@@ -442,15 +445,15 @@ public class CalculateAverage_luming {
         private int hashCode;
         private int length = 0;
 
-        public static Key valueOf(String v) {
-            Key key = new Key();
-            key.reset();
-            byte[] bs = v.getBytes();
-            for (int i = 0; i < bs.length; i++) {
-                key.accept(bs[i]);
-            }
-            return key;
-        }
+        // public static Key valueOf(String v) {
+        //     Key key = new Key();
+        //     key.reset();
+        //     byte[] bs = v.getBytes();
+        //     for (int i = 0; i < bs.length; i++) {
+        //         key.accept(bs[i]);
+        //     }
+        //     return key;
+        // }
 
         // https://stackoverflow.com/questions/20952739/how-would-you-convert-a-string-to-a-64-bit-integer
         public void accept(byte b) {
@@ -599,34 +602,63 @@ public class CalculateAverage_luming {
     }
 
     public static void handle4(Solution4Result result) {
-        byte[] data = new byte[result.buffer.remaining()];
-        result.buffer.get(data);
-        int begin = 0;
-        for (int i = 0; i < data.length; i++) {
-            if (data[i] == LINE_SEPARATOR) {
-                byte[] line = new byte[i - begin];
-                System.arraycopy(data, begin, line, 0, line.length);
+        
+        // byte[] data = new byte[result.buffer.remaining()];
+        // result.buffer.get(data);
+        // int begin = 0;
+        // for (int i = 0; i < data.length; i++) {
+        //     if (data[i] == LINE_SEPARATOR) {
+        //         byte[] line = new byte[i - begin];
+        //         System.arraycopy(data, begin, line, 0, line.length);
 
-                String[] part = new String(line, StandardCharsets.UTF_8).split(";");
-                if (part.length == 2)
-                    result.aggs.merge(// part[0]
-                            Key.valueOf(part[0]), new MeasurementAggregator(Double.parseDouble(part[1])), combiner);
+        //         String[] part = new String(line, StandardCharsets.UTF_8).split(";");
+        //         if (part.length == 2)
+        //             result.aggs.merge(// part[0]
+        //                     Key.valueOf(part[0]), new MeasurementAggregator(Double.parseDouble(part[1])), combiner);
 
-                // set begin for next line
-                begin = i + 1;
+        //         // set begin for next line
+        //         begin = i + 1;
+        //     }
+
+        // }
+        // // Last
+        // byte[] line = new byte[data.length - begin];
+        // System.arraycopy(data, begin, line, 0, line.length);
+
+        // String[] part = new String(line, StandardCharsets.UTF_8).split(";");
+        // if (part.length == 2)
+        //     result.aggs.merge(// part[0]
+        //             Key.valueOf(part[0]), new MeasurementAggregator(Double.parseDouble(part[1])),
+        //             combiner);
+        
+        while (result.buffer.remaining() > 1) {
+            boolean negative = false;
+            Key key = new Key();
+            var value = 0;
+
+            // Acquire the key
+            while (result.buffer.remaining() > 1) {
+                byte b = result.buffer.get();
+                if (b == ';') break;
+                key.accept(b);
             }
+            // Acquire the value
+            while (result.buffer.remaining() > 1) {
+                byte b = result.buffer.get();
+                switch(b) { 
+                    case '-':
+                        negative = true;
+                    case '.':
+                    case '\n':
+                        break;
+                    default:
+                        value = value * 10 + (b - '0');
+                }
+            }
+            if (negative) value = - value;
+            // Merge the current
 
         }
-        // Last
-        byte[] line = new byte[data.length - begin];
-        System.arraycopy(data, begin, line, 0, line.length);
-
-        String[] part = new String(line, StandardCharsets.UTF_8).split(";");
-        if (part.length == 2)
-            result.aggs.merge(// part[0]
-                    Key.valueOf(part[0]), new MeasurementAggregator(Double.parseDouble(part[1])),
-                    combiner);
-
     }
 
     public static void main(String[] args) throws IOException, InterruptedException, ExecutionException {

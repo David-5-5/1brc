@@ -47,6 +47,7 @@ public class CalculateAverage_tonivadee {
         System.out.println(readFile());
     }
 
+    @SuppressWarnings("unchecked")
     private static Map<String, Station> readFile() throws IOException, InterruptedException, ExecutionException {
         Map<String, Station> result = new TreeMap<>();
         try (var channel = FileChannel.open(Paths.get(FILE), StandardOpenOption.READ)) {
@@ -70,13 +71,11 @@ public class CalculateAverage_tonivadee {
                 else {
                     ExecutorService executorService = Executors.newFixedThreadPool(chunks);
                     Future<PartialResult>[] futures = new Future[chunks];
-                    // try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
-                    // var tasks = new ArrayList<Subtask<PartialResult>>(chunks);
+
                     for (int i = 0; i < chunks; i++) {
                         int start = i * chunkSize;
                         int length = chunkSize + (i < chunks ? leftover : 0);
                         futures[i] = executorService.submit(new Chunk(buffer, start, length)::read);
-                        // tasks.add(scope.fork(new Chunk(buffer, start, length)::read));
                     }
 
                     for (int i = 0; i < chunks; i++) {

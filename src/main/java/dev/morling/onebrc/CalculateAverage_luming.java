@@ -36,6 +36,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.StructuredTaskScope;
 import java.util.function.BiConsumer;
 import java.util.function.BinaryOperator;
 import java.util.function.Consumer;
@@ -629,11 +630,15 @@ public class CalculateAverage_luming {
             // result.get(key).max);
             // measurements.put(key.toString(), row);
             // }
-            System.out.println(new TreeMap(result));
+            System.out.println(new TreeMap<>(result));
         }
 
     }
 
+    /**
+     * 
+     * @param result
+     */
     public static void handle4(Solution4Result result) {
         Key key = new Key();
         while (result.buffer.remaining() > 1) {
@@ -683,6 +688,22 @@ public class CalculateAverage_luming {
             }
         }
     }
+
+
+    /**
+     * AS FOLLOWING IS SOLUTION 5 Modified from my solution4 to tonivade
+     * 
+     * 
+     * 1) Do not replace {@link ExecutorService} to {@link StructuredTaskScope}
+     * 
+     * @throws IOException
+     * @throws InterruptedException
+     * @throws ExecutionException
+     */
+    public static void solution5() throws IOException, InterruptedException, ExecutionException {
+    }
+
+
 
     public static void main(String[] args) throws IOException, InterruptedException, ExecutionException {
         // Long begin = System.currentTimeMillis();

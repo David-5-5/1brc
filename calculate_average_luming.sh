@@ -22,7 +22,7 @@ if [ -f target/CalculateAverage_luming_image ]; then
     echo "Picking up existing native image 'target/CalculateAverage_luming_image', delete the file to select JVM mode." 1>&2
     target/CalculateAverage_luming_image
 else
-    JAVA_OPTS=""
+    JAVA_OPTS=" --enable-preview"
     # echo "Chosing to run the app in JVM mode as no native image was found, use prepare_luming.sh to generate." 1>&2
     java $JAVA_OPTS --class-path target/average-1.0.0-SNAPSHOT.jar dev.morling.onebrc.CalculateAverage_luming
 fi

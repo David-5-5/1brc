@@ -28,6 +28,7 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
@@ -37,6 +38,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.StructuredTaskScope;
+import java.util.concurrent.StructuredTaskScope.Subtask;
 import java.util.function.BiConsumer;
 import java.util.function.BinaryOperator;
 import java.util.function.Consumer;
@@ -689,25 +691,292 @@ public class CalculateAverage_luming {
         }
     }
 
-
     /**
      * AS FOLLOWING IS SOLUTION 5 Modified from my solution4 to tonivade
      * 
      * 
      * 1) Do not replace {@link ExecutorService} to {@link StructuredTaskScope}
+     * 2) Non-image mode:
+     * 1.238 vs 1.191 (original)
+     * Image Mode:
+     * 1.024 vs 0.781 (original)
      * 
      * @throws IOException
      * @throws InterruptedException
      * @throws ExecutionException
      */
     public static void solution5() throws IOException, InterruptedException, ExecutionException {
+        Map<String, Stat5> result = new TreeMap<>();
+        @SuppressWarnings("unchecked")
+        final Future<Solution5Result>[] futures = new Future[128];
+
+        try (RandomAccessFile file = new RandomAccessFile(new File(FILE), "r")) {
+            FileChannel channel = file.getChannel();
+
+            int chunk = 0;
+            long begin = 0;
+            // System.out.println("channel.size = " + channel.size());
+            while (begin < channel.size()) {
+                long size = Math.min(BLOCK_SIZE, channel.size() - begin);
+
+                if (size == BLOCK_SIZE) {
+                    ByteBuffer buffer = channel.map(FileChannel.MapMode.READ_ONLY, begin + size,
+                            Math.min(BUFFER_SIZE, channel.size() - begin - size));
+                    while (buffer.hasRemaining()) {
+                        byte cur = buffer.get();
+                        size++;
+                        if (cur == LINE_SEPARATOR) {
+                            break;
+                        }
+                    }
+                }
+                // System.out.println("execute thread from " + begin + " and size = " + size);
+                futures[chunk] = executorService
+                        .submit(new Solution5Callable(channel, begin, size, r -> {
+                            handle5(r);
+                        }));
+                // Next block
+                begin += size;
+
+                chunk++;
+
+            }
+
+            for (int i = 0; i < chunk; i++) {
+                Solution5Result part = futures[i].get();
+                part.merge(result);
+            }
+
+            executorService.shutdown();
+
+            System.out.println(new TreeMap<>(result));
+        }
     }
 
+    static class Stat5 {
+        private byte[] name;
+        private final int hash;
 
+        private int min = Integer.MAX_VALUE;
+        private int max = Integer.MIN_VALUE;
+        private long total;
+        private int count;
+
+        Stat5(byte[] source, int length, int hash) {
+            name = new byte[length];
+            System.arraycopy(source, 0, name, 0, length);
+            this.hash = hash;
+        }
+
+        boolean sameName(int length, int hash) {
+            return name.length == length && this.hash == hash;
+        }
+
+        void add(int value) {
+            min = Math.min(min, value);
+            max = Math.max(max, value);
+            total += value;
+            count++;
+        }
+
+        String getName() {
+            return new String(name, StandardCharsets.UTF_8);
+        }
+
+        @Override
+        public String toString() {
+            return BigDecimal.valueOf(min / (10.0)).setScale(1, RoundingMode.HALF_UP) + "/"
+                    + BigDecimal.valueOf(total / (10.0 * count)).setScale(1, RoundingMode.HALF_UP) + '/'
+                    + BigDecimal.valueOf(max / (10.0)).setScale(1, RoundingMode.HALF_UP);
+        }
+
+        Stat5 merge(Stat5 that) {
+            max = Math.max(this.max, that.max);
+            min = Math.min(this.min, that.min);
+            total += that.total;
+            count += that.count;
+            return this;
+        }
+    }
+
+    public static class Solution5Result {
+
+        private static final int NUMBER_OF_BUCKETS = 1000;
+        private static final int BUCKET_SIZE = 50;
+
+        final Stat5[][] buckets = new Stat5[NUMBER_OF_BUCKETS][BUCKET_SIZE];
+
+        Stat5 find(byte[] name, int length, int hash) {
+            var bucket = buckets[Math.abs(hash % NUMBER_OF_BUCKETS)];
+            for (int i = 0; i < BUCKET_SIZE; i++) {
+                if (bucket[i] == null) {
+                    bucket[i] = new Stat5(name, length, hash);
+                    return bucket[i];
+                }
+                else if (bucket[i].sameName(length, hash)) {
+                    return bucket[i];
+                }
+            }
+            throw new IllegalStateException("no more space left");
+        }
+
+        ByteBuffer buffer;
+
+        Solution5Result(ByteBuffer buffer) {
+            this.buffer = buffer;
+        }
+
+        void merge(Map<String, Stat5> result) {
+            for (Stat5[] bucket : buckets) {
+                for (Stat5 station : bucket) {
+                    if (station != null) {
+                        result.merge(station.getName(), station, Stat5::merge);
+                    }
+                }
+            }
+        }
+
+    }
+
+    public static class Solution5Callable implements Callable<Solution5Result> {
+        FileChannel channel;
+        long begin;
+        long size;
+        Consumer<Solution5Result> action;
+
+        Solution5Callable(FileChannel channel, long begin, long size, Consumer<Solution5Result> action) {
+            this.channel = channel;
+            this.begin = begin;
+            this.size = size;
+            this.action = action;
+        }
+
+        @Override
+        public Solution5Result call() throws Exception {
+
+            ByteBuffer buffer = channel.map(FileChannel.MapMode.READ_ONLY, begin, size);
+
+            // System.out.println(new String(data, StandardCharsets.UTF_8));
+            Solution5Result result = new Solution5Result(buffer);
+            action.accept(result);
+            return result;
+        }
+    }
+
+    /**
+     * 
+     * @param result
+     */
+    public static void handle5(Solution5Result result) {
+        byte[] name = new byte[128];
+        while (result.buffer.remaining() > 1) {
+            boolean negative = false;
+            int nlen = 0;
+            int hash = 1;
+
+            var value = 0;
+
+            // Acquire the key
+            while (result.buffer.remaining() > 0) {
+                byte b = result.buffer.get();
+                if (b == ';')
+                    break;
+                name[nlen++] = b;
+                hash = 31 * hash + b;
+            }
+            // Acquire the value
+            loop2: while (result.buffer.remaining() > 0) {
+                byte b = result.buffer.get();
+                switch (b) {
+                    case '-':
+                        negative = true;
+                        break;
+                    case '.':
+                        value = (value * 10) + (result.buffer.get() - '0'); // single decimal
+                        break;
+                    case '\n':
+                        break loop2;
+                    default:
+                        value = (value * 10) + (b - '0');
+                }
+            }
+            if (negative)
+                value = -value;
+
+            // Merge the current
+            result.find(name, nlen, hash).add(value);
+
+        }
+    }
+
+    /**
+     * AS FOLLOWING IS SOLUTION 6 Modified from my solution5
+     * 
+     * 
+     * 1) Replace {@link ExecutorService} to {@link StructuredTaskScope}
+     * 2) Non-image mode:
+     * 1.182 vs 1.191 (original)
+     * Image Mode:
+     * 1.046 vs 0.781 (original)
+     * 
+     * !!!!!!!!!!! HOW TO IMPROVED WITH IMAGE !!!!!!!!!!!!!!!
+     * 
+     * @throws IOException
+     * @throws InterruptedException
+     * @throws ExecutionException
+     */
+    public static void solution6() throws IOException, InterruptedException, ExecutionException {
+        Map<String, Stat5> result = new TreeMap<>();
+
+        try (RandomAccessFile file = new RandomAccessFile(new File(FILE), "r")) {
+            FileChannel channel = file.getChannel();
+
+            long begin = 0;
+            // System.out.println("channel.size = " + channel.size());
+            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+                var tasks = new ArrayList<Subtask<Solution5Result>>();
+                while (begin < channel.size()) {
+                    long size = Math.min(BLOCK_SIZE, channel.size() - begin);
+
+                    if (size == BLOCK_SIZE) {
+                        ByteBuffer buffer = channel.map(FileChannel.MapMode.READ_ONLY, begin + size,
+                                Math.min(BUFFER_SIZE, channel.size() - begin - size));
+                        while (buffer.hasRemaining()) {
+                            byte cur = buffer.get();
+                            size++;
+                            if (cur == LINE_SEPARATOR) {
+                                break;
+                            }
+                        }
+                    }
+
+                    // System.out.println("execute thread from " + begin + " and size = " + size);
+                    tasks.add(scope.fork(new Solution5Callable(channel, begin, size, r -> {
+                        handle5(r);
+                    })));
+                    // Next block
+
+                    begin += size;
+
+                    chunk++;
+                }
+                scope.join();
+                scope.throwIfFailed();
+                for (var subtask : tasks) {
+                    subtask.get().merge(result);
+                }
+
+            }
+
+            executorService.shutdown();
+
+            System.out.println(new TreeMap<>(result));
+        }
+    }
 
     public static void main(String[] args) throws IOException, InterruptedException, ExecutionException {
         // Long begin = System.currentTimeMillis();
-        solution4();
+        solution6();
         // System.out.println("Execute : " + (System.currentTimeMillis() - begin));
 
     }

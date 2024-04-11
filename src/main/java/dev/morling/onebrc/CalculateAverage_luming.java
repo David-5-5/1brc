@@ -476,28 +476,45 @@ public class CalculateAverage_luming {
             if (that == null)
                 return false;
             Key key = (Key) that; // not checking class, nothing else uses this
-            if (hashCode != key.hashCode)
-                return false;
-            if (length != key.length)
-                return false;
+            if (hashCode == key.hashCode && length == key.length)
+                return true;
 
-            // As following solution is a good choice.
-            // for (int i = 0; i < length; i++) {
-            // // Don't use unsafe
-            // if (value[i] != key.value[i]) {
-            // return false;
-            // }
-            // }
-
-            // Use UNSAFE is alternative solution
-            for (int i = 0; i < length; i++) {
-                if (UNSAFE.getByte(value, i) != UNSAFE.getByte(key.value, i)) {
-                    return false;
-                }
-            }
-
-            return true;
+            return false;
         }
+
+        /**
+         * The original equals
+         * @param that
+         * @return
+         */
+        // public boolean equals(Object that) {
+        //     if (this == that)
+        //         return true;
+        //     if (that == null)
+        //         return false;
+        //     Key key = (Key) that; // not checking class, nothing else uses this
+        //     if (hashCode != key.hashCode)
+        //         return false;
+        //     if (length != key.length)
+        //         return false;
+
+        //     // As following solution is a good choice.
+        //     // for (int i = 0; i < length; i++) {
+        //     // // Don't use unsafe
+        //     // if (value[i] != key.value[i]) {
+        //     // return false;
+        //     // }
+        //     // }
+
+        //     // Use UNSAFE is alternative solution
+        //     for (int i = 0; i < length; i++) {
+        //         if (UNSAFE.getByte(value, i) != UNSAFE.getByte(key.value, i)) {
+        //             return false;
+        //         }
+        //     }
+
+        //     return true;
+        // }
 
         @Override
         public int hashCode() {
@@ -957,8 +974,6 @@ public class CalculateAverage_luming {
                     // Next block
 
                     begin += size;
-
-                    chunk++;
                 }
                 scope.join();
                 scope.throwIfFailed();
@@ -976,7 +991,7 @@ public class CalculateAverage_luming {
 
     public static void main(String[] args) throws IOException, InterruptedException, ExecutionException {
         // Long begin = System.currentTimeMillis();
-        solution6();
+        solution4();
         // System.out.println("Execute : " + (System.currentTimeMillis() - begin));
 
     }

@@ -50,7 +50,7 @@ public class CalculateAverage_lawrey {
 
         // Returns a formatted string representing min, average, and max.
         public String toString() {
-            return round(min) + "/" + round(sum / count) + "/" + round(max);
+            return round(min) + "/" + round(round(sum) / count) + "/" + round(max);
         }
 
         // Helper method to round a double value to one decimal place.
@@ -70,7 +70,7 @@ public class CalculateAverage_lawrey {
 
     // Inner class representing a key for measurements.
     static class Key {
-        final byte[] data = new byte[32];
+        final byte[] data = new byte[1024];
         int hash = 0, length = 0;
 
         // Override of hashCode using the hash field.

@@ -15,26 +15,23 @@
  */
 package dev.morling.onebrc;
 
-import sun.misc.Unsafe;
+import static java.lang.ProcessBuilder.Redirect.PIPE;
+import static java.util.Arrays.asList;
 
 import java.io.File;
 import java.io.RandomAccessFile;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.reflect.Field;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.channels.FileChannel.MapMode;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 
-import static java.lang.ProcessBuilder.Redirect.PIPE;
-import static java.util.Arrays.asList;
+import sun.misc.Unsafe;
 
 public class CalculateAverage_mtopolnik {
     private static final Unsafe UNSAFE = unsafe();
-    private static final int MAX_NAME_LEN = 100;
     private static final int STATS_TABLE_SIZE = 1 << 16;
     private static final int TABLE_INDEX_MASK = STATS_TABLE_SIZE - 1;
     private static final String MEASUREMENTS_TXT = "measurements.txt";
@@ -61,7 +58,7 @@ public class CalculateAverage_mtopolnik {
         cmdLine.add(curProcInfo.command().get());
         cmdLine.addAll(asList(curProcInfo.arguments().get()));
         cmdLine.add("--worker");
-        var process = new ProcessBuilder()
+        new ProcessBuilder()
                 .command(cmdLine)
                 .inheritIO().redirectOutput(PIPE)
                 .start()
@@ -121,7 +118,6 @@ public class CalculateAverage_mtopolnik {
         @Override
         public void run() {
             try (Arena confinedArena = Arena.ofConfined()) {
-                long totalAllocated = 0;
                 String threadName = Thread.currentThread().getName();
                 long statsByteSize = STATS_TABLE_SIZE * StatsAccessor.SIZEOF;
                 var diagnosticString = String.format("Thread %s needs %,d bytes", threadName, statsByteSize);
@@ -243,7 +239,8 @@ public class CalculateAverage_mtopolnik {
             return Long.rotateLeft(word * 0x51_7c_c1_b7_27_22_0a_95L, 17);
         }
 
-        // Copies the results from native memory to Java heap and puts them into the results array.
+        // Copies the results from native memory to Java heap and puts them into the
+        // results array.
         private void exportResults() {
             var exportedStats = new ArrayList<StationStats>(10_000);
             for (int i = 0; i < STATS_TABLE_SIZE; i++) {
@@ -486,7 +483,8 @@ public class CalculateAverage_mtopolnik {
 
         @Override
         public String toString() {
-            return String.format("%s=%.1f/%.1f/%.1f", name, min / 10.0, Math.round((double) sum / count) / 10.0, max / 10.0);
+            return String.format("%s=%.1f/%.1f/%.1f", name, min / 10.0, Math.round((double) sum / count) / 10.0,
+                    max / 10.0);
         }
 
         @Override
@@ -500,10 +498,4 @@ public class CalculateAverage_mtopolnik {
         }
     }
 
-    private static String longToString(long word) {
-        final ByteBuffer buf = ByteBuffer.allocate(8).order(ByteOrder.nativeOrder());
-        buf.clear();
-        buf.putLong(word);
-        return new String(buf.array(), StandardCharsets.UTF_8);
-    }
 }

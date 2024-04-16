@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 #  Copyright 2023 The original authors
 #
@@ -15,12 +15,10 @@
 #  limitations under the License.
 #
 
+source "$HOME/.sdkman/bin/sdkman-init.sh"
+sdk use java 21.0.2-graal 1>&2
 
-if [ -f target/CalculateAverage_isolgpus_image ]; then
-    echo "Picking up existing native image 'target/CalculateAverage_isolgpus_image', delete the file to select JVM mode." 1>&2
-    target/CalculateAverage_isolgpus_image
-else
-    JAVA_OPTS="--enable-preview"
-    java $JAVA_OPTS --class-path target/average-1.0.0-SNAPSHOT.jar dev.morling.onebrc.CalculateAverage_isolgpus
+if [ ! -f target/CalculateAverage_isolgpus_image ] && [ "$WITH_IMAGE" == "1" ]; then
+    NATIVE_IMAGE_OPTS="-O3 -march=native --enable-preview"
+    native-image $NATIVE_IMAGE_OPTS -cp target/average-1.0.0-SNAPSHOT.jar -o target/CalculateAverage_isolgpus_image dev.morling.onebrc.CalculateAverage_isolgpus
 fi
-

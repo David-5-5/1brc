@@ -35,6 +35,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
+/**
+ * In computer at home
+ * 
+ * With Image       0.584s
+ * Non  Image       0.880s
+ * 
+ */
 public class CalculateAverage_isolgpus {
 
     public static final int HISTOGRAMS_LENGTH = 1024 * 32;
@@ -79,6 +86,7 @@ public class CalculateAverage_isolgpus {
     }
 
     private static Map<String, MeasurementCollector> mergeMeasurements(List<MeasurementCollector[]> resultsFromAllChunk) {
+        // Map<String, MeasurementCollector> mergedResults = new TreeMap<>();
         Map<String, MeasurementCollector> mergedResults = new TreeMap<>(Comparator.naturalOrder());
 
         for (int i = 0; i < HISTOGRAMS_LENGTH; i++) {

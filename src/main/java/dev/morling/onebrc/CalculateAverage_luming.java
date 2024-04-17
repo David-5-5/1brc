@@ -999,11 +999,109 @@ public class CalculateAverage_luming {
      * @throws ExecutionException
      */
     public static void solution7() throws IOException, InterruptedException, ExecutionException {
+        Map<String, Stat5> result = new TreeMap<>();
+        @SuppressWarnings("unchecked")
+        final Future<Solution5Result>[] futures = new Future[128];
+
+        try (RandomAccessFile file = new RandomAccessFile(new File(FILE), "r")) {
+            FileChannel channel = file.getChannel();
+
+            int chunk = 0;
+            long begin = 0;
+            // System.out.println("channel.size = " + channel.size());
+            while (begin < channel.size()) {
+
+                long size = Math.min(BLOCK_SIZE, channel.size() - begin);
+
+                if (size == BLOCK_SIZE) {
+                    ByteBuffer buffer = channel.map(FileChannel.MapMode.READ_ONLY, begin + size,
+                            Math.min(BUFFER_SIZE, channel.size() - begin - size));
+                    while (buffer.hasRemaining()) {
+                        byte cur = buffer.get();
+                        size++;
+                        if (cur == LINE_SEPARATOR) {
+                            break;
+                        }
+                    }
+                }
+                long block = begin;
+                long blockSize = size;
+                // System.out.println("execute thread from " + begin + " and size = " + size);
+                futures[chunk] = executorService.submit(() -> handle7(channel, block, blockSize));
+                // Next block
+                begin += size;
+
+                chunk++;
+
+            }
+
+            for (int i = 0; i < chunk; i++) {
+                Solution5Result part = futures[i].get();
+                part.merge(result);
+            }
+
+            executorService.shutdown();
+
+            System.out.println(new TreeMap<>(result));
+        }
+    }
+
+    /**
+     * 
+     * @param result
+     * @throws IOException
+     */
+    public static Solution5Result handle7(FileChannel channel, long begin, long size) throws IOException {
+        ByteBuffer buffer = channel.map(FileChannel.MapMode.READ_ONLY, begin, size);
+
+        // System.out.println(new String(data, StandardCharsets.UTF_8));
+        Solution5Result result = new Solution5Result(buffer);
+
+        byte[] name = new byte[128];
+        while (result.buffer.remaining() > 1) {
+            boolean negative = false;
+            int nlen = 0;
+            int hash = 1;
+
+            var value = 0;
+
+            // Acquire the key
+            while (result.buffer.remaining() > 0) {
+                byte b = result.buffer.get();
+                if (b == ';')
+                    break;
+                name[nlen++] = b;
+                hash = 31 * hash + b;
+            }
+            // Acquire the value
+            loop2: while (result.buffer.remaining() > 0) {
+                byte b = result.buffer.get();
+                switch (b) {
+                    case '-':
+                        negative = true;
+                        break;
+                    case '.':
+                        value = (value * 10) + (result.buffer.get() - '0'); // single decimal
+                        break;
+                    case '\n':
+                        break loop2;
+                    default:
+                        value = (value * 10) + (b - '0');
+                }
+            }
+            if (negative)
+                value = -value;
+
+            // Merge the current
+            result.find(name, nlen, hash).add(value);
+        }
+
+        return result;
     }
 
     public static void main(String[] args) throws IOException, InterruptedException, ExecutionException {
         // Long begin = System.currentTimeMillis();
-        solution6();
+        solution7();
         // System.out.println("Execute : " + (System.currentTimeMillis() - begin));
 
     }

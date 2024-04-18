@@ -23,7 +23,9 @@ import java.io.StringReader;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
+import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -1046,62 +1048,95 @@ public class CalculateAverage_luming {
         }
     }
 
+    public static final byte SEPERATOR = 59;
+    // public static final byte OFFSET = 48;
+    public static final byte NEGATIVE = 45;
+    public static final byte DECIMAL_POINT = 46;
+    // public static final int MAX_CHUNK_SIZE = Integer.MAX_VALUE - 100; // bit of
+    // wiggle room
+    public static final byte NEW_LINE = 10;
+
     /**
      * 
      * @param result
      * @throws IOException
      */
     public static Solution5Result handle7(FileChannel channel, long begin, long size) throws IOException {
-        ByteBuffer buffer = channel.map(FileChannel.MapMode.READ_ONLY, begin, size);
+        MappedByteBuffer buffer = channel.map(FileChannel.MapMode.READ_ONLY, begin, size);
 
         // System.out.println(new String(data, StandardCharsets.UTF_8));
         Solution5Result result = new Solution5Result(buffer);
+        boolean isNegative;
+        byte[] valueBuffer = new byte[3];
+        int i = 0;
 
-        byte[] name = new byte[128];
-        while (result.buffer.remaining() > 1) {
-            boolean negative = false;
-            int nlen = 0;
-            int hash = 1;
+        while (i <= size) {
+            int nameSum = 0;
+            int hashResult = 0;
+            int nameStart;
+            byte aChar;
+            nameStart = i;
+            int nameBufferIndex = 0;
+            int valueIndex = 0;
 
-            var value = 0;
+            // optimistically assume that the name is at least 4 bytes
+            int firstInt = buffer.getInt();
+            nameBufferIndex = 4;
+            nameSum = firstInt;
+            hashResult = 31 * firstInt;
 
-            // Acquire the key
-            while (result.buffer.remaining() > 0) {
-                byte b = result.buffer.get();
-                if (b == ';')
-                    break;
-                name[nlen++] = b;
-                hash = 31 * hash + b;
-            }
-            // Acquire the value
-            loop2: while (result.buffer.remaining() > 0) {
-                byte b = result.buffer.get();
-                switch (b) {
-                    case '-':
-                        negative = true;
-                        break;
-                    case '.':
-                        value = (value * 10) + (result.buffer.get() - '0'); // single decimal
-                        break;
-                    case '\n':
-                        break loop2;
-                    default:
-                        value = (value * 10) + (b - '0');
+            while ((aChar = buffer.get()) != SEPERATOR) {
+                nameSum += aChar;
+                // hash as we go, stolen after a discussion with palmr
+                hashResult = 31 * hashResult + aChar;
+                nameBufferIndex++;
+
+                // oh no we read too much, do it the byte for byte way instead
+                if (aChar == NEW_LINE) {
+                    buffer.position(i);
+                    nameBufferIndex = 0;
+                    nameSum = 0;
+                    hashResult = 0;
                 }
             }
-            if (negative)
-                value = -value;
 
-            // Merge the current
-            result.find(name, nlen, hash).add(value);
+            i += nameBufferIndex + 1;
+
+            isNegative = (aChar = buffer.get()) == NEGATIVE;
+            valueIndex = readNumber(isNegative, valueBuffer, valueIndex, aChar, buffer);
+
+            // int decimalValue = buffer.getShort() >> 8;
+
+            // // int value = resolveValue(valueIndex, valueBuffer, decimalValue,
+            // isNegative);
+
+            // // MeasurementCollector measurementCollector =
+            // resolveMeasurementCollector(measurementCollectors, hashResult, nameStart,
+            // nameBufferIndex, nameSum, r);
+
+            // measurementCollector.feed(value);
+            i += valueIndex + (isNegative ? 4 : 3);
         }
 
         return result;
     }
 
+    private static int readNumber(boolean isNegative, byte[] valueBuffer, int valueIndex, byte aChar,
+                                  MappedByteBuffer r) {
+        if (!isNegative) {
+            valueBuffer[valueIndex++] = aChar;
+        }
+
+        // maybe one or two more
+        while ((aChar = r.get()) != DECIMAL_POINT) {
+            valueBuffer[valueIndex++] = aChar;
+        }
+        return valueIndex;
+    }
+
     public static void main(String[] args) throws IOException, InterruptedException, ExecutionException {
         // Long begin = System.currentTimeMillis();
-        solution7();
+        solution5();
         // System.out.println("Execute : " + (System.currentTimeMillis() - begin));
 
     }

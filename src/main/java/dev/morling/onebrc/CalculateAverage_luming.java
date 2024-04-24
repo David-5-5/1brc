@@ -31,7 +31,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
@@ -1001,55 +1003,105 @@ public class CalculateAverage_luming {
      * @throws ExecutionException
      */
     public static void solution7() throws IOException, InterruptedException, ExecutionException {
-        Map<String, Stat5> result = new TreeMap<>();
-        @SuppressWarnings("unchecked")
-        final Future<Solution5Result>[] futures = new Future[128];
+        Map<String, Stat7> result = new TreeMap<>();
+        List<Future<Stat7[]>> futures = new ArrayList<>();
 
         try (RandomAccessFile file = new RandomAccessFile(new File(FILE), "r")) {
             FileChannel channel = file.getChannel();
 
-            int chunk = 0;
             long begin = 0;
             // System.out.println("channel.size = " + channel.size());
             while (begin < channel.size()) {
 
                 long size = Math.min(BLOCK_SIZE, channel.size() - begin);
 
-                if (size == BLOCK_SIZE) {
-                    ByteBuffer buffer = channel.map(FileChannel.MapMode.READ_ONLY, begin + size,
-                            Math.min(BUFFER_SIZE, channel.size() - begin - size));
-                    while (buffer.hasRemaining()) {
-                        byte cur = buffer.get();
-                        size++;
-                        if (cur == LINE_SEPARATOR) {
-                            break;
-                        }
-                    }
-                }
+                // if (size == BLOCK_SIZE) {
+                // ByteBuffer buffer = channel.map(FileChannel.MapMode.READ_ONLY, begin + size,
+                // Math.min(BUFFER_SIZE, channel.size() - begin - size));
+                // while (buffer.hasRemaining()) {
+                // byte cur = buffer.get();
+                // size++;
+                // if (cur == LINE_SEPARATOR) {
+                // break;
+                // }
+                // }
+                // }
                 long block = begin;
-                long blockSize = size;
+                // long blockSize = size;
                 // System.out.println("execute thread from " + begin + " and size = " + size);
-                futures[chunk] = executorService.submit(() -> handle7(channel, block, blockSize));
+                // futures.add(executorService.submit(() -> handle7(channel, block, blockSize, channel.size())));
+                futures.add(executorService.submit(() -> handle7(channel, block, size, channel.size())));
                 // Next block
                 begin += size;
 
-                chunk++;
-
             }
-
-            for (int i = 0; i < chunk; i++) {
-                Solution5Result part = futures[i].get();
-                part.merge(result);
+            List<Stat7[]> Stats = new ArrayList<>();
+            for (Future<Stat7[]> stat : futures) {
+                Stats.add(stat.get());
             }
-
             executorService.shutdown();
+            Map<String, Stat7> collectors = mergeMeasurements(Stats);
+            List<MeasurementResult> results = collectors.values().stream().map(MeasurementResult::from).toList();
 
-            System.out.println(new TreeMap<>(result));
+            System.out.println(
+                    "{" + results.stream().map(MeasurementResult::toString).collect(Collectors.joining(", ")) + "}");
         }
     }
 
+    private static class MeasurementResult {
+        private final String name;
+        private final double mean;
+        private final BigDecimal max;
+        private final BigDecimal min;
+
+        public MeasurementResult(String name, double mean, BigDecimal max, BigDecimal min) {
+
+            this.name = name;
+            this.mean = mean;
+            this.max = max;
+            this.min = min;
+        }
+
+        @Override
+        public String toString() {
+            return name + "=" + min + "/" + mean + "/" + max;
+        }
+
+        public static MeasurementResult from(Stat7 mc) {
+            double mean = Math.round((double) mc.total / (double) mc.count) / 10d;
+            BigDecimal max = BigDecimal.valueOf(mc.max).divide(BigDecimal.TEN, 1, RoundingMode.HALF_UP);
+            BigDecimal min = BigDecimal.valueOf(mc.min).divide(BigDecimal.TEN, 1, RoundingMode.HALF_UP);
+            return new MeasurementResult(new String(mc.name), mean, max, min);
+        }
+    }
+
+    private static Map<String, Stat7> mergeMeasurements(List<Stat7[]> resultsFromAllChunk) {
+        // Map<String, MeasurementCollector> mergedResults = new TreeMap<>();
+        Map<String, Stat7> mergedResults = new TreeMap<>(Comparator.naturalOrder());
+
+        for (int i = 0; i < HISTOGRAMS_LENGTH; i++) {
+            for (Stat7[] resultFromSpecificChunk : resultsFromAllChunk) {
+                Stat7 measurementCollectorFromChunk = resultFromSpecificChunk[i];
+                while (measurementCollectorFromChunk != null) {
+                    Stat7 currentMergedResult = mergedResults.get(new String(measurementCollectorFromChunk.name));
+                    if (currentMergedResult == null) {
+                        currentMergedResult = new Stat7(measurementCollectorFromChunk.name,
+                                measurementCollectorFromChunk.nameSum);
+                        mergedResults.put(new String(currentMergedResult.name), currentMergedResult);
+                    }
+                    currentMergedResult.merge(measurementCollectorFromChunk);
+                    measurementCollectorFromChunk = measurementCollectorFromChunk.link;
+                }
+            }
+        }
+
+        return mergedResults;
+    }
+
+    public static final int HISTOGRAMS_LENGTH = 1024 * 32;
+    public static final int HISTOGRAMS_MASK = HISTOGRAMS_LENGTH - 1;
     public static final byte SEPERATOR = 59;
-    // public static final byte OFFSET = 48;
+    public static final byte OFFSET = 48;
     public static final byte NEGATIVE = 45;
     public static final byte DECIMAL_POINT = 46;
     // public static final int MAX_CHUNK_SIZE = Integer.MAX_VALUE - 100; // bit of
@@ -1061,64 +1113,77 @@ public class CalculateAverage_luming {
      * @param result
      * @throws IOException
      */
-    public static Solution5Result handle7(FileChannel channel, long begin, long size) throws IOException {
-        MappedByteBuffer buffer = channel.map(FileChannel.MapMode.READ_ONLY, begin, size);
+    public static Stat7[] handle7(FileChannel channel, long begin, long size, long maxLen) throws IOException {
+        long seekStart = Math.max(begin - 1, 0);
+        long length = Math.min(size + 200, maxLen - seekStart);
 
-        // System.out.println(new String(data, StandardCharsets.UTF_8));
-        Solution5Result result = new Solution5Result(buffer);
+        MappedByteBuffer buffer = channel.map(FileChannel.MapMode.READ_ONLY, seekStart, length);
+        // MappedByteBuffer r = channel.map(FileChannel.MapMode.READ_ONLY, seekStart, length);
         boolean isNegative;
         byte[] valueBuffer = new byte[3];
         int i = 0;
-
-        while (i <= size) {
-            int nameSum = 0;
-            int hashResult = 0;
-            int nameStart;
-            byte aChar;
-            nameStart = i;
-            int nameBufferIndex = 0;
-            int valueIndex = 0;
-
-            // optimistically assume that the name is at least 4 bytes
-            int firstInt = buffer.getInt();
-            nameBufferIndex = 4;
-            nameSum = firstInt;
-            hashResult = 31 * firstInt;
-
-            while ((aChar = buffer.get()) != SEPERATOR) {
-                nameSum += aChar;
-                // hash as we go, stolen after a discussion with palmr
-                hashResult = 31 * hashResult + aChar;
-                nameBufferIndex++;
-
-                // oh no we read too much, do it the byte for byte way instead
-                if (aChar == NEW_LINE) {
-                    buffer.position(i);
-                    nameBufferIndex = 0;
-                    nameSum = 0;
-                    hashResult = 0;
-                }
+        // seek to the start of the next message
+        if (begin != 0) {
+            while (buffer.get() != NEW_LINE) {
+                i++;
             }
-
-            i += nameBufferIndex + 1;
-
-            isNegative = (aChar = buffer.get()) == NEGATIVE;
-            valueIndex = readNumber(isNegative, valueBuffer, valueIndex, aChar, buffer);
-
-            // int decimalValue = buffer.getShort() >> 8;
-
-            // // int value = resolveValue(valueIndex, valueBuffer, decimalValue,
-            // isNegative);
-
-            // // MeasurementCollector measurementCollector =
-            // resolveMeasurementCollector(measurementCollectors, hashResult, nameStart,
-            // nameBufferIndex, nameSum, r);
-
-            // measurementCollector.feed(value);
-            i += valueIndex + (isNegative ? 4 : 3);
+            i++;
         }
+        Stat7[] stats = new Stat7[HISTOGRAMS_LENGTH];
+        try {
+            while (i <= size) {
+                int nameSum = 0;
+                int hashResult = 0;
+                int nameStart;
+                byte aChar;
+                nameStart = i;
+                int nameBufferIndex = 0;
+                int valueIndex = 0;
 
-        return result;
+                // optimistically assume that the name is at least 4 bytes
+                int firstInt = buffer.getInt();
+                nameBufferIndex = 4;
+                nameSum = firstInt;
+                hashResult = 31 * firstInt;
+
+                while ((aChar = buffer.get()) != SEPERATOR) {
+                    nameSum += aChar;
+                    // hash as we go, stolen after a discussion with palmr
+                    hashResult = 31 * hashResult + aChar;
+                    nameBufferIndex++;
+
+                    // oh no we read too much, do it the byte for byte way instead
+                    if (aChar == NEW_LINE) {
+                        buffer.position(i);
+                        nameBufferIndex = 0;
+                        nameSum = 0;
+                        hashResult = 0;
+                    }
+                }
+
+                i += nameBufferIndex + 1;
+
+                isNegative = (aChar = buffer.get()) == NEGATIVE;
+                valueIndex = readNumber(isNegative, valueBuffer, valueIndex, aChar, buffer);
+
+                int decimalValue = buffer.getShort() >> 8;
+
+                int value = resolveValue(valueIndex, valueBuffer, decimalValue, isNegative);
+
+                Stat7 stat = resolveStat7(stats, hashResult, nameStart,
+                        nameBufferIndex, nameSum, buffer);
+
+                stat.feed(value);
+                i += valueIndex + (isNegative ? 4 : 3);
+            }
+        }
+        catch (BufferUnderflowException e) {
+            // if (i != maxLen - seekStart) {
+            // e.printStackTrace();
+            // throw new RuntimeException(e);
+            // }
+        }
+        return stats;
     }
 
     private static int readNumber(boolean isNegative, byte[] valueBuffer, int valueIndex, byte aChar,
@@ -1134,9 +1199,99 @@ public class CalculateAverage_luming {
         return valueIndex;
     }
 
+    private static int resolveValue(int valueIndex, byte[] valueBuffer, int decimalValue, boolean isNegative) {
+        int value;
+        if (valueIndex == 1) {
+            value = ((valueBuffer[0] - OFFSET) * 10) + (decimalValue - OFFSET);
+        }
+        else {// it's 2 digits
+            value = ((valueBuffer[0] - OFFSET) * 100) + ((valueBuffer[1] - OFFSET) * 10) + (decimalValue - OFFSET);
+        }
+
+        if (isNegative) {
+            value = Math.negateExact(value);
+        }
+        return value;
+    }
+
+    static class Stat7 {
+        private byte[] name;
+
+        private int min = Integer.MAX_VALUE;
+        private int max = Integer.MIN_VALUE;
+        private long total;
+        private int count;
+
+        // introduce from isolgpus
+        private int nameSum;
+        public Stat7 link;
+
+        // remove compare to Stat5
+        // private final int hash;
+
+        Stat7(byte[] name, int nameSum) {
+            this.name = name;
+            this.nameSum = nameSum;
+        }
+
+        void feed(int value) {
+            min = Math.min(min, value);
+            max = Math.max(max, value);
+            total += value;
+            count++;
+        }
+
+        Stat7 merge(Stat7 that) {
+            max = Math.max(this.max, that.max);
+            min = Math.min(this.min, that.min);
+            total += that.total;
+            count += that.count;
+            return this;
+        }
+    }
+
+    private static boolean nameEquals(byte[] existingName, int existingNameSum, int incomingNameSum,
+                                      int nameBufferIndex) {
+
+        if (existingName.length != nameBufferIndex) {
+            return false;
+        }
+
+        return incomingNameSum == existingNameSum;
+    }
+
+    private static Stat7 resolveStat7(Stat7[] stats, int hash, int nameStart,
+                                      int nameBufferLength, int nameSum, MappedByteBuffer r) {
+        Stat7 stat = stats[hash & HISTOGRAMS_MASK];
+        if (stat == null) {
+            byte[] nameBuffer = new byte[nameBufferLength];
+            r.get(nameStart, nameBuffer, 0, nameBufferLength);
+
+            stat = new Stat7(nameBuffer, nameSum);
+            stats[hash & HISTOGRAMS_MASK] = stat;
+        }
+        else {
+            // collision unhappy path, try to avoid
+            while (!nameEquals(stat.name, stat.nameSum, nameSum, nameBufferLength)) {
+                if (stat.link == null) {
+                    byte[] nameBuffer = new byte[nameBufferLength];
+                    r.get(nameStart, nameBuffer, 0, nameBufferLength);
+                    stat.link = new Stat7(nameBuffer, nameSum);
+                    stat = stat.link;
+                    break;
+                }
+                else {
+                    stat = stat.link;
+                }
+            }
+
+        }
+        return stat;
+    }
+
     public static void main(String[] args) throws IOException, InterruptedException, ExecutionException {
         // Long begin = System.currentTimeMillis();
-        solution5();
+        solution7();
         // System.out.println("Execute : " + (System.currentTimeMillis() - begin));
 
     }

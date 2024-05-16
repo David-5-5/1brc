@@ -16,8 +16,6 @@
 #
 
 
-
-
 if [ -f target/CalculateAverage_step7_image ]; then
     echo "Picking up existing native image 'target/CalculateAverage_step7_image', delete the file to select JVM mode." 1>&2
     target/CalculateAverage_step7_image

@@ -411,15 +411,11 @@ When you run this, it will generate a flamegraph in profile.html. You can then o
 
 Download [async-profiler](https://github.com/jvm-profiling-tools/async-profiler) and unzip the package. execute as following
 
-```shell
-java -agentpath:/path/to/libasyncProfiler.so=start,event=cpu,file=profile.html $JAVA_OPTS --class-path target/average-1.0.0-SNAPSHOT.jar dev.morling.onebrc.CalculateAverage_youname
-```
+`java -agentpath:/path/to/libasyncProfiler.so=start,event=cpu,file=profile.html $JAVA_OPTS --class-path target/average-1.0.0-SNAPSHOT.jar dev.morling.onebrc.CalculateAverage_youname`
 
 > [!TIP]
 > sudo sysctl kernel.perf_event_paranoid=1
-> otherwise,
-> [!WARN]
-> perf_event_open for TID 249000 failed: Permission denied
+> otherwise, perf_event_open for TID 249000 failed: Permission denied
 
 > [!TIP]
 > Preview features should be enabled for many solution. "JAVA_OPS = --enable-preview"

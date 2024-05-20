@@ -395,6 +395,7 @@ Execute the following steps to run the challenge:
 
 ## Flamegraph/Profiling
 
+### Use jbang with ap-loader
 A tip is that if you have [jbang](https://jbang.dev) installed, you can get a flamegraph of your program by running
 [async-profiler](https://github.com/jvm-profiling-tools/async-profiler) via [ap-loader](https://github.com/jvm-profiling-tools/ap-loader):
 
@@ -405,6 +406,23 @@ or directly on the .java file:
 `jbang --javaagent=ap-loader@jvm-profiling-tools/ap-loader=start,event=cpu,file=profile.html src/main/java/dev/morling/onebrc/CalculateAverage_yourname`
 
 When you run this, it will generate a flamegraph in profile.html. You can then open this in a browser and see where your program is spending its time.
+
+### Use java with async-profiler directly
+
+Download [async-profiler](https://github.com/jvm-profiling-tools/async-profiler) and unzip the package. execute as following
+
+```shell
+java -agentpath:/path/to/libasyncProfiler.so=start,event=cpu,file=profile.html $JAVA_OPTS --class-path target/average-1.0.0-SNAPSHOT.jar dev.morling.onebrc.CalculateAverage_youname
+```
+
+> [!TIP] 1
+> sudo sysctl kernel.perf_event_paranoid=1
+> otherwise,
+> [!WARN] perf_event_open for TID 249000 failed: Permission denied
+
+> [!TIP] 2 
+> Preview features should be enabled for many solution. "JAVA_OPS = --enable-preview"
+
 
 ## Rules and limits
 

@@ -415,12 +415,13 @@ Download [async-profiler](https://github.com/jvm-profiling-tools/async-profiler)
 java -agentpath:/path/to/libasyncProfiler.so=start,event=cpu,file=profile.html $JAVA_OPTS --class-path target/average-1.0.0-SNAPSHOT.jar dev.morling.onebrc.CalculateAverage_youname
 ```
 
-> [!TIP] 1
+> [!TIP]
 > sudo sysctl kernel.perf_event_paranoid=1
 > otherwise,
-> [!WARN] perf_event_open for TID 249000 failed: Permission denied
+> [!WARN]
+> perf_event_open for TID 249000 failed: Permission denied
 
-> [!TIP] 2 
+> [!TIP]
 > Preview features should be enabled for many solution. "JAVA_OPS = --enable-preview"
 
 

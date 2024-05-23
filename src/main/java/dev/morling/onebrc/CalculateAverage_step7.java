@@ -16,6 +16,7 @@
 package dev.morling.onebrc;
 
 import static java.lang.Double.parseDouble;
+import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 import static java.util.stream.Collectors.groupingBy;
 import static java.util.stream.Collectors.summarizingDouble;
 
@@ -26,8 +27,13 @@ import java.io.RandomAccessFile;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.channels.FileChannel.MapMode;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.TreeMap;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
 public class CalculateAverage_step7 {
@@ -37,7 +43,6 @@ public class CalculateAverage_step7 {
     static final long length = file.length();
     static final int chunkCount = Runtime.getRuntime().availableProcessors();
     final long[] chunkStartOffsets = new long[chunkCount];
-
 
     public static void main(String[] args) throws Exception {
         var start = System.currentTimeMillis();
@@ -68,18 +73,93 @@ public class CalculateAverage_step7 {
     }
 
     static class Step2 {
-        
 
-        private static void calculate() throws Exception {
+        static void calculate() throws Exception {
             final var results = new StationStats[chunkCount][];
+            final Future<StationStats[]>[] futures = new Future[chunkCount];
 
             try (var file = new RandomAccessFile(new File(FILE), "r")) {
                 MemorySegment mappedFile = file.getChannel().map(
                         MapMode.READ_ONLY, 0, length, Arena.global());
             }
         }
+
+        static class ChunkProcessor extends AbstractCallable {
+            private final Map<String, StationStats> statsMap = new HashMap<>();
+            
+            ChunkProcessor(MemorySegment chunk) {
+                super(chunk);
+            }
+
+            @Override
+            public StationStats[] call() throws Exception {
+                for (var cursor = 0L; cursor < chunk.byteSize();) {
+                    var semicolonPos = findByte(cursor, ';');
+                    var newlinePos = findByte(semicolonPos + 1, '\n');
+                    var name = stringAt(cursor, semicolonPos);
+                    // Variant 1:
+    //                var temp = Double.parseDouble(stringAt(semicolonPos + 1, newlinePos));
+    //                var intTemp = (int) Math.round(10 * temp);
+    
+                    // Variant 2:
+                    var intTemp = parseTemperature(semicolonPos);
+    
+                    var stats = statsMap.computeIfAbsent(name, k -> new StationStats(name));
+                    stats.sum += intTemp;
+                    stats.count++;
+                    stats.min = Math.min(stats.min, intTemp);
+                    stats.max = Math.max(stats.max, intTemp);
+                    cursor = newlinePos + 1;
+                }
+                    
+                return statsMap.values().toArray(StationStats[]::new);
+            }
+        }
     }
 
+    abstract static class AbstractCallable implements Callable<StationStats[]> {
+        protected final MemorySegment chunk;
+
+        AbstractCallable(MemorySegment chunk) {
+            this.chunk = chunk;
+        }
+
+        int parseTemperature(long semicolonPos) {
+            long off = semicolonPos + 1;
+            int sign = 1;
+            byte b = chunk.get(JAVA_BYTE, off++);
+            if (b == '-') {
+                sign = -1;
+                b = chunk.get(JAVA_BYTE, off++);
+            }
+            int temp = b - '0';
+            b = chunk.get(JAVA_BYTE, off++);
+            if (b != '.') {
+                temp = 10 * temp + b - '0';
+                // we found two integer digits. The next char is definitely '.', skip it:
+                off++;
+            }
+            b = chunk.get(JAVA_BYTE, off);
+            temp = 10 * temp + b - '0';
+            return sign * temp;
+        }
+
+        long findByte(long cursor, int b) {
+            for (var i = cursor; i < chunk.byteSize(); i++) {
+                if (chunk.get(JAVA_BYTE, i) == b) {
+                    return i;
+                }
+            }
+            throw new RuntimeException(((char) b) + " not found");
+        }
+
+        String stringAt(long start, long limit) {
+            return new String(
+                    chunk.asSlice(start, limit - start).toArray(JAVA_BYTE),
+                    StandardCharsets.UTF_8
+            );
+        }
+    }
 
     static class StationStats implements Comparable<StationStats> {
         String name;
@@ -106,6 +186,6 @@ public class CalculateAverage_step7 {
         public int compareTo(StationStats that) {
             return name.compareTo(that.name);
         }
-    }    
+    }
 
 }

@@ -33,6 +33,8 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
@@ -43,15 +45,16 @@ public class CalculateAverage_step7 {
     static final long length = file.length();
     static final int chunkCount = Runtime.getRuntime().availableProcessors();
     final long[] chunkStartOffsets = new long[chunkCount];
+    static ExecutorService executorService = Executors.newFixedThreadPool(chunkCount);
 
     public static void main(String[] args) throws Exception {
         var start = System.currentTimeMillis();
-        Step1.calculate();
+        Step2.calculate();
         System.err.format("Took %,d ms\n", System.currentTimeMillis() - start);
     }
 
     static class Step1 {
-        private static void calculate() throws Exception {
+        static void calculate() throws Exception {
             @SuppressWarnings("resource")
             var allStats = new BufferedReader(new FileReader(FILE))
                     .lines()
@@ -76,17 +79,55 @@ public class CalculateAverage_step7 {
 
         static void calculate() throws Exception {
             final var results = new StationStats[chunkCount][];
+            @SuppressWarnings("unchecked")
             final Future<StationStats[]>[] futures = new Future[chunkCount];
 
+            final var chunkStartOffsets = new long[chunkCount];
+
             try (var file = new RandomAccessFile(new File(FILE), "r")) {
+                for (int i = 1; i < chunkStartOffsets.length; i++) {
+                    var start = length * i / chunkStartOffsets.length;
+                    file.seek(start);
+                    while (file.read() != (byte) '\n') {
+                    }
+                    start = file.getFilePointer();
+                    chunkStartOffsets[i] = start;
+                }
                 MemorySegment mappedFile = file.getChannel().map(
                         MapMode.READ_ONLY, 0, length, Arena.global());
+
+                for (int i = 0; i < chunkCount; i++) {
+                    final long chunkStart = chunkStartOffsets[i];
+                    final long chunkLimit = (i + 1 < chunkCount) ? chunkStartOffsets[i + 1] : length;
+                    futures[i] = executorService
+                            .submit(new ChunkProcessor(mappedFile.asSlice(chunkStart, chunkLimit - chunkStart)));
+                }
+
+                for (int i = 0; i < chunkCount; i++) {
+                    results[i] = futures[i].get();
+                }
+                executorService.shutdown();
+
+                var totalsMap = new TreeMap<String, StationStats>();
+                for (var statsArray : results) {
+                    for (var stats : statsArray) {
+                        totalsMap.merge(stats.name, stats, (old, curr) -> {
+                            old.count += curr.count;
+                            old.sum += curr.sum;
+                            old.min = Math.min(old.min, curr.min);
+                            old.max = Math.max(old.max, curr.max);
+                            return old;
+                        });
+                    }
+                }
+                System.out.println(totalsMap);
+
             }
         }
 
         static class ChunkProcessor extends AbstractCallable {
             private final Map<String, StationStats> statsMap = new HashMap<>();
-            
+
             ChunkProcessor(MemorySegment chunk) {
                 super(chunk);
             }
@@ -98,12 +139,12 @@ public class CalculateAverage_step7 {
                     var newlinePos = findByte(semicolonPos + 1, '\n');
                     var name = stringAt(cursor, semicolonPos);
                     // Variant 1:
-    //                var temp = Double.parseDouble(stringAt(semicolonPos + 1, newlinePos));
-    //                var intTemp = (int) Math.round(10 * temp);
-    
+                    // var temp = Double.parseDouble(stringAt(semicolonPos + 1, newlinePos));
+                    // var intTemp = (int) Math.round(10 * temp);
+
                     // Variant 2:
                     var intTemp = parseTemperature(semicolonPos);
-    
+
                     var stats = statsMap.computeIfAbsent(name, k -> new StationStats(name));
                     stats.sum += intTemp;
                     stats.count++;
@@ -111,7 +152,7 @@ public class CalculateAverage_step7 {
                     stats.max = Math.max(stats.max, intTemp);
                     cursor = newlinePos + 1;
                 }
-                    
+
                 return statsMap.values().toArray(StationStats[]::new);
             }
         }
@@ -156,17 +197,16 @@ public class CalculateAverage_step7 {
         String stringAt(long start, long limit) {
             return new String(
                     chunk.asSlice(start, limit - start).toArray(JAVA_BYTE),
-                    StandardCharsets.UTF_8
-            );
+                    StandardCharsets.UTF_8);
         }
     }
 
     static class StationStats implements Comparable<StationStats> {
         String name;
         long sum;
-        int count;
-        int min;
-        int max;
+        long count;
+        private long min = Long.MAX_VALUE;
+        private long max = Long.MIN_VALUE;
 
         StationStats(String name) {
             this.name = name;

@@ -26,6 +26,8 @@ import java.io.FileReader;
 import java.io.RandomAccessFile;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
@@ -49,7 +51,7 @@ public class CalculateAverage_step7 {
 
     public static void main(String[] args) throws Exception {
         var start = System.currentTimeMillis();
-        Step2.calculate();
+        Step2WithFileChannel.calculate();
         System.err.format("Took %,d ms\n", System.currentTimeMillis() - start);
     }
 
@@ -75,6 +77,9 @@ public class CalculateAverage_step7 {
         }
     }
 
+    /**
+     * Duraton : 2.454s
+     */
     static class Step2 {
 
         static void calculate() throws Exception {
@@ -203,10 +208,10 @@ public class CalculateAverage_step7 {
 
     static class StationStats implements Comparable<StationStats> {
         String name;
-        long sum;
-        long count;
-        private long min = Long.MAX_VALUE;
-        private long max = Long.MIN_VALUE;
+        int sum;
+        int count;
+        private int min = Integer.MAX_VALUE;
+        private int max = Integer.MIN_VALUE;
 
         StationStats(String name) {
             this.name = name;
@@ -225,6 +230,130 @@ public class CalculateAverage_step7 {
         @Override
         public int compareTo(StationStats that) {
             return name.compareTo(that.name);
+        }
+    }
+
+    /**
+     * Duraton : 2.111s
+     */
+    static class Step2WithFileChannel {
+
+        static void calculate() throws Exception {
+            final var results = new StationStats[chunkCount][];
+            @SuppressWarnings("unchecked")
+            final Future<StationStats[]>[] futures = new Future[chunkCount];
+
+            final var chunkStartOffsets = new long[chunkCount];
+
+            try (var file = new RandomAccessFile(new File(FILE), "r")) {
+                for (int i = 1; i < chunkStartOffsets.length; i++) {
+                    var start = length * i / chunkStartOffsets.length;
+                    file.seek(start);
+                    while (file.read() != (byte) '\n') {
+                    }
+                    start = file.getFilePointer();
+                    chunkStartOffsets[i] = start;
+                }
+                FileChannel channel = file.getChannel();
+
+                for (int i = 0; i < chunkCount; i++) {
+                    final long chunkStart = chunkStartOffsets[i];
+                    final long chunkLimit = (i + 1 < chunkCount) ? chunkStartOffsets[i + 1] : length;
+                    futures[i] = executorService
+                            .submit(new ChunkProcessor(
+                                    channel.map(FileChannel.MapMode.READ_ONLY, chunkStart,
+                                            chunkLimit - chunkStart)));
+                }
+
+                for (int i = 0; i < chunkCount; i++) {
+                    results[i] = futures[i].get();
+                }
+                executorService.shutdown();
+
+                var totalsMap = new TreeMap<String, StationStats>();
+                for (var statsArray : results) {
+                    for (var stats : statsArray) {
+                        totalsMap.merge(stats.name, stats, (old, curr) -> {
+                            old.count += curr.count;
+                            old.sum += curr.sum;
+                            old.min = Math.min(old.min, curr.min);
+                            old.max = Math.max(old.max, curr.max);
+                            return old;
+                        });
+                    }
+                }
+                System.out.println(totalsMap);
+
+            }
+        }
+
+        static class ChunkProcessor implements Callable<StationStats[]> {
+            private final Map<String, StationStats> statsMap = new HashMap<>();
+            private MappedByteBuffer chunk;
+
+            ChunkProcessor(MappedByteBuffer chunk) {
+                this.chunk = chunk;
+            }
+
+            @Override
+            public StationStats[] call() throws Exception {
+                for (var cursor = 0; cursor < chunk.capacity();) {
+                    var semicolonPos = findByte(cursor, ';');
+                    var newlinePos = findByte(semicolonPos + 1, '\n');
+                    var name = stringAt(cursor, semicolonPos);
+                    // Variant 1:
+                    // var temp = Double.parseDouble(stringAt(semicolonPos + 1, newlinePos));
+                    // var intTemp = (int) Math.round(10 * temp);
+
+                    // Variant 2:
+                    var intTemp = parseTemperature(semicolonPos);
+
+                    var stats = statsMap.computeIfAbsent(name, k -> new StationStats(name));
+                    stats.sum += intTemp;
+                    stats.count++;
+                    stats.min = Math.min(stats.min, intTemp);
+                    stats.max = Math.max(stats.max, intTemp);
+                    cursor = newlinePos + 1;
+                }
+
+                return statsMap.values().toArray(StationStats[]::new);
+            }
+
+            int parseTemperature(int semicolonPos) {
+                int off = semicolonPos + 1;
+                int sign = 1;
+                byte b = chunk.get(off++);
+                if (b == '-') {
+                    sign = -1;
+                    b = chunk.get(off++);
+                }
+                int temp = b - '0';
+                b = chunk.get(off++);
+                if (b != '.') {
+                    temp = 10 * temp + b - '0';
+                    // we found two integer digits. The next char is definitely '.', skip it:
+                    off++;
+                }
+                b = chunk.get(off);
+                temp = 10 * temp + b - '0';
+                return sign * temp;
+            }
+
+            int findByte(int cursor, int b) {
+                for (var i = cursor; i < chunk.capacity(); i++) {
+                    if (chunk.get(i) == b) {
+                        return i;
+                    }
+                }
+                throw new RuntimeException(((char) b) + " not found");
+            }
+
+            String stringAt(int start, int limit) {
+                byte[] dst = new byte[limit - start];
+                chunk.get(start, dst);
+                return new String(dst, StandardCharsets.UTF_8);
+            }
+
         }
     }
 

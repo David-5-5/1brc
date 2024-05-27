@@ -30,9 +30,11 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -40,6 +42,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
+/**
+ * Refer to https://questdb.io/blog/billion-row-challenge-step-by-step/
+ */
 public class CalculateAverage_step7 {
     private static final String FILE = "./measurements.txt";
 
@@ -51,7 +56,7 @@ public class CalculateAverage_step7 {
 
     public static void main(String[] args) throws Exception {
         var start = System.currentTimeMillis();
-        Step2WithFileChannel.calculate();
+        Step3.calculate();
         System.err.format("Took %,d ms\n", System.currentTimeMillis() - start);
     }
 
@@ -217,6 +222,14 @@ public class CalculateAverage_step7 {
             this.name = name;
         }
 
+        StationStats(StatsAcc acc, MemorySegment chunk) {
+            name = new String(chunk.asSlice(acc.nameOffset, acc.nameLen).toArray(JAVA_BYTE), StandardCharsets.UTF_8);
+            sum = acc.sum;
+            count = acc.count;
+            min = acc.min;
+            max = acc.max;
+        }
+
         @Override
         public String toString() {
             return String.format("%.1f/%.1f/%.1f", min / 10.0, Math.round((double) sum / count) / 10.0, max / 10.0);
@@ -354,6 +367,142 @@ public class CalculateAverage_step7 {
                 return new String(dst, StandardCharsets.UTF_8);
             }
 
+        }
+    }
+
+    static class StatsAcc {
+        long nameOffset;
+        long nameLen;
+        int hash;
+        int sum;
+        int count;
+        int min = Integer.MAX_VALUE;
+        int max = Integer.MIN_VALUE;
+
+        StatsAcc(int hash, long nameOffset, long nameLen) {
+            this.hash = hash;
+            this.nameOffset = nameOffset;
+            this.nameLen = nameLen;
+        }
+
+        public boolean nameEquals(MemorySegment chunk, long otherNameOffset, long otherNameLimit) {
+            var otherNameLen = otherNameLimit - otherNameOffset;
+            return nameLen == otherNameLen &&
+                    chunk.asSlice(nameOffset, nameLen).mismatch(chunk.asSlice(otherNameOffset, nameLen)) == -1;
+        }
+    }
+
+    /**
+     * Duraton : s
+     */
+    static class Step3 {
+
+        static void calculate() throws Exception {
+            final var results = new StationStats[chunkCount][];
+            @SuppressWarnings("unchecked")
+            final Future<StationStats[]>[] futures = new Future[chunkCount];
+
+            final var chunkStartOffsets = new long[chunkCount];
+
+            try (var file = new RandomAccessFile(new File(FILE), "r")) {
+                for (int i = 1; i < chunkStartOffsets.length; i++) {
+                    var start = length * i / chunkStartOffsets.length;
+                    file.seek(start);
+                    while (file.read() != (byte) '\n') {
+                    }
+                    start = file.getFilePointer();
+                    chunkStartOffsets[i] = start;
+                }
+                MemorySegment mappedFile = file.getChannel().map(
+                        MapMode.READ_ONLY, 0, length, Arena.global());
+
+                for (int i = 0; i < chunkCount; i++) {
+                    final long chunkStart = chunkStartOffsets[i];
+                    final long chunkLimit = (i + 1 < chunkCount) ? chunkStartOffsets[i + 1] : length;
+                    futures[i] = executorService
+                            .submit(new ChunkProcessor(mappedFile.asSlice(chunkStart, chunkLimit - chunkStart)));
+                }
+
+                for (int i = 0; i < chunkCount; i++) {
+                    results[i] = futures[i].get();
+                }
+                executorService.shutdown();
+
+                var totalsMap = new TreeMap<String, StationStats>();
+                for (var statsArray : results) {
+                    for (var stats : statsArray) {
+                        totalsMap.merge(stats.name, stats, (old, curr) -> {
+                            old.count += curr.count;
+                            old.sum += curr.sum;
+                            old.min = Math.min(old.min, curr.min);
+                            old.max = Math.max(old.max, curr.max);
+                            return old;
+                        });
+                    }
+                }
+                System.out.println(totalsMap);
+
+            }
+        }
+
+        static class ChunkProcessor extends AbstractCallable {
+            private static final int HASHTABLE_SIZE = 2048;
+            private final StatsAcc[] hashtable = new StatsAcc[HASHTABLE_SIZE];
+
+            ChunkProcessor(MemorySegment chunk) {
+                super(chunk);
+            }
+
+            @Override
+            public StationStats[] call() throws Exception {
+                for (var cursor = 0L; cursor < chunk.byteSize();) {
+                    var semicolonPos = findByte(cursor, ';');
+                    var newlinePos = findByte(semicolonPos + 1, '\n');
+                    var intTemp = parseTemperature(semicolonPos);
+
+                    var stats = findAcc(cursor, semicolonPos);
+
+                    stats.sum += intTemp;
+                    stats.count++;
+                    stats.min = Math.min(stats.min, intTemp);
+                    stats.max = Math.max(stats.max, intTemp);
+                    cursor = newlinePos + 1;
+                }
+
+                return Arrays.stream(hashtable)
+                        .filter(Objects::nonNull)
+                        .map(acc -> new StationStats(acc, chunk))
+                        .toArray(StationStats[]::new);
+            }
+
+            private StatsAcc findAcc(long cursor, long semicolonPos) {
+                int hash = hash(cursor, semicolonPos);
+                int initialPos = hash & (HASHTABLE_SIZE - 1);
+                int slotPos = initialPos;
+                while (true) {
+                    var acc = hashtable[slotPos];
+                    if (acc == null) {
+                        acc = new StatsAcc(hash, cursor, semicolonPos - cursor);
+                        hashtable[slotPos] = acc;
+                        return acc;
+                    }
+                    if (acc.hash == hash && acc.nameEquals(chunk, cursor, semicolonPos)) {
+                        return acc;
+                    }
+                    slotPos = (slotPos + 1) & (HASHTABLE_SIZE - 1);
+                    if (slotPos == initialPos) {
+                        throw new RuntimeException(String.format("hash %x, acc.hash %x", hash, acc.hash));
+                    }
+                }
+            }
+
+            private int hash(long startOffset, long limitOffset) {
+                int h = 17;
+                for (long off = startOffset; off < limitOffset; off++) {
+                    h = 31 * h + ((int) chunk.get(JAVA_BYTE, off) & 0xFF);
+                }
+                return h;
+            }
         }
     }
 

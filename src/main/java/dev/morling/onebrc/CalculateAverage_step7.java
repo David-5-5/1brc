@@ -502,7 +502,7 @@ public class CalculateAverage_step7 {
     /**
      * Optimization 3: Custom hashtable
      * 
-     * Duraton : s
+     * Duraton : 1.643s
      */
     static class Step3 {
 
@@ -632,7 +632,7 @@ public class CalculateAverage_step7 {
     /**
      * Optimization 4: sun.misc.Unsafe, SWAR
      * 
-     * Duraton : s
+     * Duraton : 0.681s
      */
     static class Step4 {
 

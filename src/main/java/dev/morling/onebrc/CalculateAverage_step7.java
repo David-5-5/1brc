@@ -26,6 +26,9 @@ import java.io.FileReader;
 import java.io.RandomAccessFile;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
@@ -42,6 +45,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
+import sun.misc.Unsafe;
+
 /**
  * Refer to https://questdb.io/blog/billion-row-challenge-step-by-step/
  */
@@ -56,7 +61,7 @@ public class CalculateAverage_step7 {
 
     public static void main(String[] args) throws Exception {
         var start = System.currentTimeMillis();
-        Step3.calculate();
+        Step4.calculate();
         System.err.format("Took %,d ms\n", System.currentTimeMillis() - start);
     }
 
@@ -233,6 +238,19 @@ public class CalculateAverage_step7 {
             max = acc.max;
         }
 
+        /**
+         * 
+         * @param acc
+         * @since Step4
+         */
+        StationStats(StatsAcc acc) {
+            name = acc.exportNameString();
+            sum = acc.sum;
+            count = acc.count;
+            min = acc.min;
+            max = acc.max;
+        }
+
         @Override
         public String toString() {
             return String.format("%.1f/%.1f/%.1f", min / 10.0, Math.round((double) sum / count) / 10.0, max / 10.0);
@@ -376,18 +394,43 @@ public class CalculateAverage_step7 {
     }
 
     static class StatsAcc {
+        /**
+         * @since Step4
+         */
+        long[] name;
+
         long nameOffset;
-        long nameLen;
+        int nameLen;
         int hash;
         int sum;
         int count;
         int min = Integer.MAX_VALUE;
         int max = Integer.MIN_VALUE;
 
-        StatsAcc(int hash, long nameOffset, long nameLen) {
+        StatsAcc(int hash, long nameOffset, int nameLen) {
             this.hash = hash;
             this.nameOffset = nameOffset;
             this.nameLen = nameLen;
+        }
+
+        /**
+         * 
+         * @param inputBase
+         * @param hash
+         * @param nameStartOffset
+         * @param nameLen
+         * @param lastNameWord
+         * 
+         * @since Step4
+         */
+        public StatsAcc(long inputBase, long hash, long nameStartOffset, int nameLen, long lastNameWord) {
+            this.hash = (int) hash;
+            this.nameLen = nameLen;
+            name = new long[(nameLen - 1) / 8 + 1];
+            for (int i = 0; i < name.length - 1; i++) {
+                name[i] = getLong(inputBase, nameStartOffset + i * Long.BYTES);
+            }
+            name[name.length - 1] = lastNameWord;
         }
 
         public boolean nameEquals(MemorySegment chunk, long otherNameOffset, long otherNameLimit) {
@@ -395,6 +438,64 @@ public class CalculateAverage_step7 {
             // Avoid construct instance of String for performance
             return nameLen == otherNameLen &&
                     chunk.asSlice(nameOffset, nameLen).mismatch(chunk.asSlice(otherNameOffset, nameLen)) == -1;
+        }
+
+        /**
+         * 
+         * @param base
+         * @param offset
+         * @return
+         * @since Step4
+         */
+        private static long getLong(long base, long offset) {
+            return UNSAFE.getLong(base + offset);
+        }
+
+        /**
+         * 
+         * @param inputBase
+         * @param inputNameStart
+         * @param inputNameLen
+         * @param lastInputWord
+         * @return
+         * @since Step4
+         */
+        boolean nameEquals(long inputBase, long inputNameStart, long inputNameLen, long lastInputWord) {
+            int i = 0;
+            for (; i <= inputNameLen - Long.BYTES; i += Long.BYTES) {
+                if (getLong(inputBase, inputNameStart + i) != name[i / 8]) {
+                    return false;
+                }
+            }
+            return i == inputNameLen || lastInputWord == name[i / 8];
+        }
+
+        /**
+         * 
+         * @param temperature
+         * @since Step4
+         */
+        void observe(int temperature) {
+            sum += temperature;
+            count++;
+            min = Math.min(min, temperature);
+            max = Math.max(max, temperature);
+        }
+
+        /**
+         * 
+         * @return
+         * @since Step4
+         */
+        String exportNameString() {
+            var buf = ByteBuffer.allocate(name.length * 8).order(ByteOrder.LITTLE_ENDIAN);
+            for (long nameWord : name) {
+                buf.putLong(nameWord);
+            }
+            buf.flip();
+            final var bytes = new byte[nameLen - 1];
+            buf.get(bytes);
+            return new String(bytes, StandardCharsets.UTF_8);
         }
     }
 
@@ -490,7 +591,7 @@ public class CalculateAverage_step7 {
                 while (true) {
                     var acc = hashtable[slotPos];
                     if (acc == null) {
-                        acc = new StatsAcc(hash, cursor, semicolonPos - cursor);
+                        acc = new StatsAcc(hash, cursor, (int) (semicolonPos - cursor));
                         hashtable[slotPos] = acc;
                         return acc;
                     }
@@ -512,6 +613,20 @@ public class CalculateAverage_step7 {
                 return h;
             }
         }
+    }
+
+    private static final Unsafe UNSAFE = unsafe();
+
+    private static Unsafe unsafe() {
+        try {
+            Field theUnsafe = Unsafe.class.getDeclaredField("theUnsafe");
+            theUnsafe.setAccessible(true);
+            return (Unsafe) theUnsafe.get(Unsafe.class);
+        }
+        catch (NoSuchFieldException | IllegalAccessException e) {
+            throw new RuntimeException(e);
+        }
+
     }
 
     /**
@@ -572,45 +687,60 @@ public class CalculateAverage_step7 {
         static class ChunkProcessor extends AbstractCallable {
             private static final int HASHTABLE_SIZE = 2048;
             private final StatsAcc[] hashtable = new StatsAcc[HASHTABLE_SIZE];
+            private final long inputBase;
+            private final long inputSize;
 
             ChunkProcessor(MemorySegment chunk) {
                 super(chunk);
+                inputBase = chunk.address();
+                inputSize = chunk.byteSize();
             }
 
             @Override
             public StationStats[] call() throws Exception {
-                for (var cursor = 0L; cursor < chunk.byteSize();) {
-                    var semicolonPos = findByte(cursor, ';');
-                    var newlinePos = findByte(semicolonPos + 1, '\n');
-                    var intTemp = parseTemperature(semicolonPos);
-
-                    var stats = findAcc(cursor, semicolonPos);
-
-                    stats.sum += intTemp;
-                    stats.count++;
-                    stats.min = Math.min(stats.min, intTemp);
-                    stats.max = Math.max(stats.max, intTemp);
-                    cursor = newlinePos + 1;
+                long cursor = 0;
+                while (cursor < inputSize) {
+                    long nameStartOffset = cursor;
+                    long hash = 0;
+                    int nameLen = 0;
+                    while (true) {
+                        long nameWord = UNSAFE.getLong(inputBase + nameStartOffset + nameLen);
+                        long matchBits = semicolonMatchBits(nameWord);
+                        if (matchBits != 0) {
+                            nameLen += nameLen(matchBits);
+                            nameWord = maskWord(nameWord, matchBits);
+                            hash = hash(hash, nameWord);
+                            cursor += nameLen;
+                            long tempWord = UNSAFE.getLong(inputBase + cursor);
+                            int dotPos = dotPos(tempWord);
+                            int temperature = parseTemperature(tempWord, dotPos);
+                            cursor += (dotPos >> 3) + 3;
+                            findAcc(hash, nameStartOffset, nameLen, nameWord).observe(temperature);
+                            break;
+                        }
+                        hash = hash(hash, nameWord);
+                        nameLen += Long.BYTES;
+                    }
                 }
 
                 return Arrays.stream(hashtable)
                         .filter(Objects::nonNull)
-                        .map(acc -> new StationStats(acc, chunk))
+                        .map(StationStats::new)
                         .toArray(StationStats[]::new);
             }
 
-            private StatsAcc findAcc(long cursor, long semicolonPos) {
-                int hash = hash(cursor, semicolonPos);
-                int initialPos = hash & (HASHTABLE_SIZE - 1);
+            private StatsAcc findAcc(long hash, long nameStartOffset, int nameLen, long lastNameWord) {
+                int initialPos = (int) hash & (HASHTABLE_SIZE - 1);
                 int slotPos = initialPos;
                 while (true) {
                     var acc = hashtable[slotPos];
                     if (acc == null) {
-                        acc = new StatsAcc(hash, cursor, semicolonPos - cursor);
+                        acc = new StatsAcc(inputBase, hash, nameStartOffset, nameLen, lastNameWord);
+                        ;
                         hashtable[slotPos] = acc;
                         return acc;
                     }
-                    if (acc.hash == hash && acc.nameEquals(chunk, cursor, semicolonPos)) {
+                    if (acc.nameEquals(inputBase, nameStartOffset, nameLen, lastNameWord)) {
                         return acc;
                     }
                     slotPos = (slotPos + 1) & (HASHTABLE_SIZE - 1);
@@ -620,12 +750,57 @@ public class CalculateAverage_step7 {
                 }
             }
 
-            private int hash(long startOffset, long limitOffset) {
-                int h = 17;
-                for (long off = startOffset; off < limitOffset; off++) {
-                    h = 31 * h + ((int) chunk.get(JAVA_BYTE, off) & 0xFF);
-                }
-                return h;
+            private static final long BROADCAST_SEMICOLON = 0x3B3B3B3B3B3B3B3BL;
+            private static final long BROADCAST_0x01 = 0x0101010101010101L;
+            private static final long BROADCAST_0x80 = 0x8080808080808080L;
+
+            private static long semicolonMatchBits(long word) {
+                long diff = word ^ BROADCAST_SEMICOLON;
+                return (diff - BROADCAST_0x01) & (~diff & BROADCAST_0x80);
+            }
+
+            // credit: artsiomkorzun
+            private static long maskWord(long word, long matchBits) {
+                long mask = matchBits ^ (matchBits - 1);
+                return word & mask;
+            }
+
+            private static int nameLen(long separator) {
+                return (Long.numberOfTrailingZeros(separator) >>> 3) + 1;
+            }
+
+            private static long hash(long prevHash, long word) {
+                return Long.rotateLeft((prevHash ^ word) * 0x51_7c_c1_b7_27_22_0a_95L, 13);
+            }
+
+            private static final long DOT_BITS = 0x10101000;
+
+            // credit: merykitty
+            // The 4th binary digit of the ascii of a digit is 1 while
+            // that of the '.' is 0. This finds the decimal separator.
+            // The value can be 12, 20, 28
+            private static int dotPos(long word) {
+                return Long.numberOfTrailingZeros(~word & DOT_BITS);
+            }
+
+            private static final long MAGIC_MULTIPLIER = (100 * 0x1000000 + 10 * 0x10000 + 1);
+
+            // credit: merykitty and royvanrijn
+            private static int parseTemperature(long numberBytes, int dotPos) {
+                // numberBytes contains the number: X.X, -X.X, XX.X or -XX.X
+                final long invNumberBytes = ~numberBytes;
+
+                // Calculates the sign
+                final long signed = (invNumberBytes << 59) >> 63;
+                final int _28MinusDotPos = (dotPos ^ 0b11100);
+                final long minusFilter = ~(signed & 0xFF);
+                // Use the pre-calculated decimal position to adjust the values
+                final long digits = ((numberBytes & minusFilter) << _28MinusDotPos) & 0x0F000F0F00L;
+
+                // Multiply by a magic (100 * 0x1000000 + 10 * 0x10000 + 1), to get the result
+                final long absValue = ((digits * MAGIC_MULTIPLIER) >>> 32) & 0x3FF;
+                // And apply the sign
+                return (int) ((absValue + signed) ^ signed);
             }
         }
     }

@@ -615,10 +615,14 @@ public class CalculateAverage_step7 {
         }
     }
 
+    /**
+     * 获取实例的方法是通过静态方法 getUnsafe()。 需要注意的是，默认情况下 - 这将引发 SecurityException。
+     * 幸运的是，我们可以使用反射来获取实例
+     */
     private static final Unsafe UNSAFE = unsafe();
-
     private static Unsafe unsafe() {
         try {
+            ;
             Field theUnsafe = Unsafe.class.getDeclaredField("theUnsafe");
             theUnsafe.setAccessible(true);
             return (Unsafe) theUnsafe.get(Unsafe.class);
@@ -704,9 +708,12 @@ public class CalculateAverage_step7 {
                     long hash = 0;
                     int nameLen = 0;
                     while (true) {
+                        // 使用 unsafe 直接读取内存
                         long nameWord = UNSAFE.getLong(inputBase + nameStartOffset + nameLen);
+                        // seek for semicolon ';'
                         long matchBits = semicolonMatchBits(nameWord);
                         if (matchBits != 0) {
+                            // Find the ';'
                             nameLen += nameLen(matchBits);
                             nameWord = maskWord(nameWord, matchBits);
                             hash = hash(hash, nameWord);

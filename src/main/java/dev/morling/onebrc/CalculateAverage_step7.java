@@ -921,7 +921,7 @@ public class CalculateAverage_step7 {
      * 
      * upgrade from Step4
      * 
-     * Duraton :
+     * Duraton : 0.524s
      */
     static class Step5 {
 

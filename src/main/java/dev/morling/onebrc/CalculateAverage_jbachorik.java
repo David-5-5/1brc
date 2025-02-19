@@ -34,7 +34,7 @@ public class CalculateAverage_jbachorik {
         final int offset;
         final int len;
         final long v0, v1;
-        final int hash;
+        // final int hash;
 
         Key(ByteBuffer bb, int offset, int len, long v0, long v1, int hash) {
             this.bb = bb;
@@ -42,7 +42,7 @@ public class CalculateAverage_jbachorik {
             this.len = len;
             this.v0 = v0;
             this.v1 = v1;
-            this.hash = hash;
+            // this.hash = hash;
         }
 
         public boolean equals(int offset, int len, long v0, long v1) {

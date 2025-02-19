@@ -188,7 +188,7 @@ public class CalculateAverage_algirdasrascius {
 
             // If this is not the first chunk skip till first line end
             if (channelPosition != 0) {
-                byte v;
+                // byte v;
                 while (index < endIndex && buffer[index] != '\n') {
                     index++;
                 }
